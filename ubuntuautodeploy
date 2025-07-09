@@ -3,7 +3,8 @@
 # Ubuntu Security Tools Installation Script
 # This script installs various security analysis tools on Ubuntu
 # Tools: nmap, ncat, ping, binwalk, impacket, obsidian, smbclient, 
-#        netexec, certipy, dnstool, i3, hashcat, java, zsh + oh-my-zsh, kitty
+#        netexec, certipy, dnstool, i3, hashcat, java, zsh + oh-my-zsh, 
+#        kitty, polybar
 
 set -e  # Exit on error
 
@@ -64,6 +65,7 @@ apt install -y \
     opencl-headers \
     clinfo \
     fonts-powerline \
+    fonts-font-awesome \
     tmux
 
 # 1. Install nmap (includes ncat)
@@ -101,7 +103,210 @@ apt install -y openjdk-8-jre
 print_status "Installing i3 window manager..."
 apt install -y i3 i3status i3lock xss-lock dmenu
 
-# 9. Install zsh and make it default shell
+# 9. Install polybar
+print_status "Installing polybar..."
+apt install -y polybar
+
+# Create basic polybar config
+print_status "Configuring polybar..."
+if [ -n "$SUDO_USER" ]; then
+    USER_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
+    POLYBAR_CONFIG_DIR="$USER_HOME/.config/polybar"
+    mkdir -p "$POLYBAR_CONFIG_DIR"
+    
+    # Create launch script
+    cat > "$POLYBAR_CONFIG_DIR/launch.sh" << 'EOF'
+#!/bin/bash
+
+# Terminate already running bar instances
+killall -q polybar
+
+# Wait until the processes have been shut down
+while pgrep -u $UID -x polybar >/dev/null; do sleep 1; done
+
+# Launch polybar
+polybar main &
+
+echo "Polybar launched..."
+EOF
+    chmod +x "$POLYBAR_CONFIG_DIR/launch.sh"
+    
+    # Create basic polybar config
+    cat > "$POLYBAR_CONFIG_DIR/config.ini" << 'EOF'
+[colors]
+background = #282A2E
+background-alt = #373B41
+foreground = #C5C8C6
+primary = #F0C674
+secondary = #8ABEB7
+alert = #A54242
+disabled = #707880
+
+[bar/main]
+width = 100%
+height = 24pt
+radius = 0
+
+background = ${colors.background}
+foreground = ${colors.foreground}
+
+line-size = 3pt
+
+border-size = 0
+border-color = #00000000
+
+padding-left = 0
+padding-right = 1
+
+module-margin = 1
+
+separator = |
+separator-foreground = ${colors.disabled}
+
+font-0 = monospace;2
+font-1 = Font Awesome 6 Free:pixelsize=12;2
+font-2 = Font Awesome 6 Free Solid:pixelsize=12;2
+font-3 = Font Awesome 6 Brands:pixelsize=12;2
+
+modules-left = i3 xwindow
+modules-center = date
+modules-right = network network-wireless cpu memory battery
+
+cursor-click = pointer
+cursor-scroll = ns-resize
+
+enable-ipc = true
+
+[module/i3]
+type = internal/i3
+pin-workspaces = true
+show-urgent = true
+strip-wsnumbers = true
+index-sort = true
+
+format = <label-state> <label-mode>
+
+label-focused = %index%
+label-focused-background = ${colors.background-alt}
+label-focused-underline= ${colors.primary}
+label-focused-padding = 1
+
+label-unfocused = %index%
+label-unfocused-padding = 1
+
+label-visible = %index%
+label-visible-underline = ${colors.secondary}
+label-visible-padding = 1
+
+label-urgent = %index%
+label-urgent-background = ${colors.alert}
+label-urgent-padding = 1
+
+[module/xwindow]
+type = internal/xwindow
+label = %title:0:60:...%
+
+[module/cpu]
+type = internal/cpu
+interval = 2
+format-prefix = "CPU "
+format-prefix-foreground = ${colors.primary}
+label = %percentage:2%%
+
+[module/memory]
+type = internal/memory
+interval = 2
+format-prefix = "MEM "
+format-prefix-foreground = ${colors.primary}
+label = %percentage_used:2%%
+
+[module/network]
+type = internal/network
+interface-type = wired
+interval = 3.0
+
+format-connected = <label-connected>
+format-connected-prefix = "NET "
+format-connected-prefix-foreground = ${colors.primary}
+label-connected = %ifname% %local_ip%
+
+format-disconnected = <label-disconnected>
+label-disconnected = disconnected
+label-disconnected-foreground = ${colors.disabled}
+
+[module/network-wireless]
+type = internal/network
+interface-type = wireless
+interval = 3.0
+
+format-connected = <label-connected>
+format-connected-prefix = "WIFI "
+format-connected-prefix-foreground = ${colors.primary}
+label-connected = %essid% %local_ip%
+
+format-disconnected = <label-disconnected>
+label-disconnected = no wifi
+label-disconnected-foreground = ${colors.disabled}
+
+[module/battery]
+type = internal/battery
+battery = BAT0
+adapter = AC
+full-at = 98
+
+format-charging = <label-charging>
+format-charging-prefix = "BAT+ "
+format-charging-prefix-foreground = ${colors.secondary}
+label-charging = %percentage%%
+
+format-discharging = <label-discharging>
+format-discharging-prefix = "BAT "
+format-discharging-prefix-foreground = ${colors.primary}
+label-discharging = %percentage%%
+
+format-full-prefix = "FULL "
+format-full-prefix-foreground = ${colors.secondary}
+label-full = %percentage%%
+
+[module/date]
+type = internal/date
+interval = 1
+
+date = %Y-%m-%d %H:%M:%S
+date-alt = %A, %B %d, %Y %H:%M:%S
+
+label = %date%
+label-foreground = ${colors.primary}
+
+[settings]
+screenchange-reload = true
+pseudo-transparency = false
+EOF
+    
+    # Update i3 config to use polybar instead of i3status
+    USER_I3_CONFIG="$USER_HOME/.config/i3/config"
+    if [ -f "$USER_I3_CONFIG" ]; then
+        # Comment out i3bar section
+        sed -i '/^bar {/,/^}/ s/^/#/' "$USER_I3_CONFIG"
+        
+        # Add polybar launch command
+        if ! grep -q "polybar/launch.sh" "$USER_I3_CONFIG"; then
+            echo "" >> "$USER_I3_CONFIG"
+            echo "# Launch polybar" >> "$USER_I3_CONFIG"
+            echo "exec_always --no-startup-id \$HOME/.config/polybar/launch.sh" >> "$USER_I3_CONFIG"
+        fi
+    else
+        # If i3 config doesn't exist yet, make sure it will launch polybar when created
+        mkdir -p "$USER_HOME/.config/i3"
+        echo "# Launch polybar" > "$USER_HOME/.config/i3/polybar-autostart"
+        echo "exec_always --no-startup-id \$HOME/.config/polybar/launch.sh" >> "$USER_HOME/.config/i3/polybar-autostart"
+        chown -R "$SUDO_USER:$SUDO_USER" "$USER_HOME/.config/i3"
+    fi
+    
+    chown -R "$SUDO_USER:$SUDO_USER" "$POLYBAR_CONFIG_DIR"
+fi
+
+# 10. Install zsh and make it default shell
 print_status "Installing zsh..."
 apt install -y zsh
 
@@ -216,7 +421,7 @@ if [ -n "$SUDO_USER" ]; then
     install_oh_my_zsh "$SUDO_USER" "$USER_HOME"
 fi
 
-# 10. Install kitty terminal
+# 11. Install kitty terminal
 print_status "Installing kitty terminal..."
 apt install -y kitty
 
@@ -259,11 +464,20 @@ bindsym $mod+Shift+q kill
 # Start dmenu
 bindsym $mod+d exec dmenu_run
 
+# Launch polybar
+exec_always --no-startup-id $HOME/.config/polybar/launch.sh
+
 # Copy remaining config from system default
 EOF
-        # Append the rest of the default config, skipping the terminal binding
+        # Append the rest of the default config, skipping the terminal binding and i3bar
         if [ -f "$I3_CONFIG_DIR/config" ]; then
-            grep -v "bindsym \$mod+Return" "$I3_CONFIG_DIR/config" | grep -v "^#.*config file" | grep -v "^set \$mod" | grep -v "^font pango" | grep -v "bindsym \$mod+d exec dmenu" | grep -v "bindsym \$mod+Shift+q kill" >> "$USER_I3_DIR/config"
+            grep -v "bindsym \$mod+Return" "$I3_CONFIG_DIR/config" | \
+            grep -v "^#.*config file" | \
+            grep -v "^set \$mod" | \
+            grep -v "^font pango" | \
+            grep -v "bindsym \$mod+d exec dmenu" | \
+            grep -v "bindsym \$mod+Shift+q kill" | \
+            sed '/^bar {/,/^}/ d' >> "$USER_I3_DIR/config"
         fi
         chown "$SUDO_USER:$SUDO_USER" "$USER_I3_DIR/config"
     fi
@@ -313,7 +527,7 @@ EOF
     fi
 fi
 
-# 11. Install Python-based tools
+# 12. Install Python-based tools
 print_status "Setting up Python environment for security tools..."
 
 # Upgrade pip
@@ -331,7 +545,7 @@ python3 -m pip install netexec
 print_status "Installing certipy..."
 python3 -m pip install certipy-ad
 
-# 12. Install Obsidian
+# 13. Install Obsidian
 print_status "Installing Obsidian..."
 # Check if snap is installed, if not install it
 if ! command -v snap &> /dev/null; then
@@ -415,6 +629,7 @@ check_tool smbclient
 check_tool hashcat
 check_tool java
 check_tool i3
+check_tool polybar
 check_tool zsh
 check_tool kitty
 
@@ -479,3 +694,7 @@ echo "   - Custom aliases: nse, smbmap, serve, pyserve, ports, myip"
 echo "   - Custom functions: extract_all, b64e/b64d, urlencode/urldecode"
 echo "   - Plugins: git, docker, python, nmap, ssh-agent, tmux, z, and more"
 echo "9. Kitty: Configured as default terminal. Config file: ~/.config/kitty/kitty.conf"
+echo "10. Polybar: Configured to replace i3bar with system monitoring modules"
+echo "    - Config: ~/.config/polybar/config.ini"
+echo "    - Launch script: ~/.config/polybar/launch.sh"
+echo "    - Modules: workspaces, window title, CPU, memory, network, battery, date/time"
