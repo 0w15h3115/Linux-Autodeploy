@@ -90,7 +90,19 @@ apt install -y dnsutils dnsrecon dnsenum
 
 # 6. Install hashcat
 print_status "Installing hashcat..."
-apt install -y hashcat hashcat-utils
+apt install -y hashcat || {
+    print_warning "Hashcat not found in repositories, installing from source..."
+    # Install hashcat from source as fallback
+    cd /tmp
+    git clone https://github.com/hashcat/hashcat.git
+    cd hashcat
+    make
+    make install
+    cd ..
+    rm -rf hashcat
+}
+
+# Note: hashcat-utils is not in standard repos, but hashcat includes most needed utilities
 
 # 7. Install Java Runtime
 print_status "Installing Java Runtime..."
