@@ -79,8 +79,12 @@ apt install -y pipx 2>/dev/null || {
     python3 -m pip install --user pipx
 }
 
+
+print_status "Installing ncat"
+apt install -y ncat
+
 # 1. Install nmap (includes ncat)
-print_status "Installing nmap and ncat..."
+print_status "Installing nmap..."
 apt install -y nmap
 
 # 2. Install ping (usually pre-installed, but just in case)
