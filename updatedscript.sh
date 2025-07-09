@@ -586,7 +586,7 @@ export PATH="$PATH:/root/.local/bin"
 
 # Install tools with pipx for better isolation
 print_status "Installing impacket..."
-python3 -m pipx install impacket || print_warning "Impacket already installed or installation failed"
+pipx install impacket || print_warning "Impacket already installed or installation failed"
 # Add common dependencies for impacket
 python3 -m pipx inject impacket ldap3 2>/dev/null || true
 
