@@ -540,21 +540,22 @@ EOF
 fi
 
 # 12. Install Python-based tools
+print_status "Setting up Python environment for security tools..."
 
 # Upgrade pip
-pipx install --upgrade pip
+python3 -m pip install --upgrade pip
 
 # Install impacket
 print_status "Installing impacket..."
-pipx install impacket
+python3 -m pip install impacket
 
 # Install netexec (formerly crackmapexec)
 print_status "Installing netexec..."
-pipx install netexec
+python3 -m pip install netexec
 
 # Install certipy-ad
 print_status "Installing certipy..."
-pipx install certipy-ad
+python3 -m pip install certipy-ad
 
 # 13. Install Obsidian
 print_status "Installing Obsidian..."
