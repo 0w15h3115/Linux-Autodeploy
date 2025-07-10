@@ -70,7 +70,7 @@ apt install -y \
     python3 \
     ncat
 
-# 1. Install nmap (includes ncat)
+# 1. Install nmap
 print_status "Installing nmap..."
 apt install -y nmap
 
