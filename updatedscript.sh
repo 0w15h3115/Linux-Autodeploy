@@ -151,6 +151,80 @@ fi
 # Install Oh My Zsh for root too
 sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
 
+# Configure root's zsh with same settings
+if [ -f "/root/.zshrc" ]; then
+    sed -i 's/ZSH_THEME="robbyrussell"/ZSH_THEME="agnoster"/' "/root/.zshrc"
+    sed -i 's/plugins=(git)/plugins=(git docker python pip nmap ssh-agent sudo tmux colored-man-pages command-not-found extract z)/' "/root/.zshrc"
+    
+    # Add the same aliases to root's zshrc
+    cat >> "/root/.zshrc" << 'EOF'
+
+# Add local bin to PATH if not already there
+export PATH="$HOME/.local/bin:$PATH"
+
+# Security tool aliases
+alias nse='ls /usr/share/nmap/scripts/ | grep'
+alias smbmap='smbclient -L'
+alias hashcat64='hashcat'
+alias serve='python3 -m http.server'
+alias pyserve='python3 -m http.server'
+alias phpserve='php -S 0.0.0.0:8000'
+
+# Network aliases
+alias ports='netstat -tulanp'
+alias listening='netstat -tlnp'
+alias myip='curl -s ifconfig.me'
+
+# Useful functions
+extract_all() {
+    for file in "$@"; do
+        if [ -f "$file" ]; then
+            case $file in
+                *.tar.bz2)   tar xjf "$file"     ;;
+                *.tar.gz)    tar xzf "$file"     ;;
+                *.bz2)       bunzip2 "$file"     ;;
+                *.rar)       unrar e "$file"     ;;
+                *.gz)        gunzip "$file"      ;;
+                *.tar)       tar xf "$file"      ;;
+                *.tbz2)      tar xjf "$file"     ;;
+                *.tgz)       tar xzf "$file"     ;;
+                *.zip)       unzip "$file"       ;;
+                *.Z)         uncompress "$file"  ;;
+                *.7z)        7z x "$file"        ;;
+                *)           echo "'$file' cannot be extracted" ;;
+            esac
+        else
+            echo "'$file' is not a valid file"
+        fi
+    done
+}
+
+# Quick base64 encode/decode
+b64e() { echo -n "$1" | base64; }
+b64d() { echo -n "$1" | base64 -d; }
+
+# Quick URL encode/decode
+urlencode() { python3 -c "import urllib.parse; print(urllib.parse.quote('$1'))"; }
+urldecode() { python3 -c "import urllib.parse; print(urllib.parse.unquote('$1'))"; }
+EOF
+fi
+
+# Set zsh as default shell for root
+chsh -s /usr/bin/zsh
+
+# Set kitty as the default terminal
+echo "[+] Setting kitty as default terminal..."
+update-alternatives --install /usr/bin/x-terminal-emulator x-terminal-emulator /usr/bin/kitty 50
+update-alternatives --set x-terminal-emulator /usr/bin/kitty
+
+# Set zsh as default shell for root
+chsh -s /usr/bin/zsh
+
+# Set kitty as the default terminal
+echo "[+] Setting kitty as default terminal..."
+update-alternatives --install /usr/bin/x-terminal-emulator x-terminal-emulator /usr/bin/kitty 50
+update-alternatives --set x-terminal-emulator /usr/bin/kitty
+
 # Install Obsidian via snap
 echo "[+] Installing Obsidian..."
 snap install obsidian --classic || echo "Failed to install Obsidian"
@@ -258,9 +332,21 @@ echo "- Binary: binwalk"
 echo "- Password: hashcat"
 echo "- Python: impacket, netexec, certipy-ad"
 echo "- Desktop: i3, polybar, kitty"
-echo "- Shell: zsh with Oh My Zsh"
+echo "- Shell: zsh with Oh My Zsh (agnoster theme + security plugins)"
 echo "- Note taking: Obsidian"
 echo "- Java: default-jre, openjdk-11"
 echo ""
-echo "[!] Log out and back in for shell changes to take effect"
-echo "[!] Run 'source /etc/profile.d/security-tools.sh' to update PATH in current session"
+echo "Current shells:"
+echo "- Root: $(getent passwd root | cut -d: -f7)"
+if [ -n "$SUDO_USER" ]; then
+    echo "- $SUDO_USER: $(getent passwd "$SUDO_USER" | cut -d: -f7)"
+fi
+echo ""
+echo ""
+echo "[!] IMPORTANT: Next Steps"
+echo "[!] 1. Log out and log back in for zsh to become your default shell"
+echo "[!] 2. Or run 'exec zsh' to switch to zsh in the current session"
+echo "[!] 3. Kitty is now the default terminal - run 'kitty' to open it"
+echo "[!] 4. In i3 window manager: Mod+Enter will open kitty"
+echo "[!] 5. To start i3: log out and select i3 from login screen"
+echo "[!] 6. Run 'source /etc/profile.d/security-tools.sh' to update PATH now"
