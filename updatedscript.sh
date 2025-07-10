@@ -543,11 +543,12 @@ fi
 print_status "Setting up Python environment for security tools..."
 
 # Upgrade pip
-python3 -m pip install --upgrade pip
+print_status "Installing pipx"
+apt install pipx
 
 # Install impacket
 print_status "Installing impacket..."
-python3 -m pip install impacket
+pipx install impacket
 
 # Install netexec (formerly crackmapexec)
 print_status "Installing netexec..."
