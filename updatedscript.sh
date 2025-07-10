@@ -5,8 +5,6 @@
 # Tools: nmap, ncat, ping, binwalk, impacket, obsidian, smbclient, 
 #        netexec, certipy, dnstool, i3, hashcat, java, zsh + oh-my-zsh, 
 #        kitty, polybar
-# 
-# Python tools are installed with pipx for better isolation and PATH management
 
 set -e  # Exit on error
 
@@ -51,7 +49,6 @@ apt install -y \
     python3 \
     python3-pip \
     python3-venv \
-    python3-argcomplete \
     git \
     curl \
     wget \
@@ -60,7 +57,6 @@ apt install -y \
     python3-dev \
     python3-setuptools \
     libpcap-dev \
-    libpcap0.8 \
     libgmp3-dev \
     libxml2-dev \
     libxslt1-dev \
@@ -72,19 +68,8 @@ apt install -y \
     fonts-font-awesome \
     tmux
 
-# Install pipx (may not be in older Ubuntu repos)
-print_status "Installing pipx..."
-apt install -y pipx 2>/dev/null || {
-    print_warning "pipx not in repositories, installing via pip..."
-    python3 -m pip install --user pipx
-}
-
-
-print_status "Installing ncat"
-apt install -y ncat
-
 # 1. Install nmap (includes ncat)
-print_status "Installing nmap..."
+print_status "Installing nmap and ncat..."
 apt install -y nmap
 
 # 2. Install ping (usually pre-installed, but just in case)
@@ -396,16 +381,6 @@ alias hashcat64='hashcat'
 alias serve='python3 -m http.server'
 alias pyserve='python3 -m http.server'
 alias phpserve='php -S 0.0.0.0:8000'
-alias crackmapexec='netexec'
-alias cme='netexec'
-
-# Impacket shortcuts (common ones)
-alias psexec='psexec.py'
-alias smbexec='smbexec.py'
-alias wmiexec='wmiexec.py'
-alias getnpusers='GetNPUsers.py'
-alias secretsdump='secretsdump.py'
-alias gettgt='getTGT.py'
 
 # Network aliases
 alias ports='netstat -tulanp'
@@ -443,11 +418,6 @@ b64d() { echo -n "$1" | base64 -d; }
 # Quick URL encode/decode
 urlencode() { python3 -c "import urllib.parse; print(urllib.parse.quote('$1'))"; }
 urldecode() { python3 -c "import urllib.parse; print(urllib.parse.unquote('$1'))"; }
-
-# Enable pipx bash completion
-if command -v register-python-argcomplete >/dev/null 2>&1; then
-    eval "$(register-python-argcomplete pipx)"
-fi
 EOF
         
         chown "$USER_NAME:$USER_NAME" "$USER_HOME/.zshrc"
@@ -570,45 +540,21 @@ EOF
 fi
 
 # 12. Install Python-based tools
-print_status "Setting up Python environment for security tools..."
 
 # Upgrade pip
-python3 -m pip install --upgrade pip
+pipx install --upgrade pip
 
-# Ensure pipx is properly set up
-print_status "Configuring pipx..."
-python3 -m pipx ensurepath
-# Create .local/bin if it doesn't exist
-mkdir -p /root/.local/bin
-# Source bashrc to get pipx in PATH
-[ -f /root/.bashrc ] && source /root/.bashrc
-export PATH="$PATH:/root/.local/bin"
-
-# Install tools with pipx for better isolation
+# Install impacket
 print_status "Installing impacket..."
-pipx install impacket || print_warning "Impacket already installed or installation failed"
-# Add common dependencies for impacket
-python3 -m pipx inject impacket ldap3 2>/dev/null || true
+pipx install impacket
 
+# Install netexec (formerly crackmapexec)
 print_status "Installing netexec..."
-python3 -m pipx install netexec || print_warning "Netexec already installed or installation failed"
+pipx install netexec
 
-print_status "Installing certipy-ad..."
-python3 -m pipx install certipy-ad || print_warning "Certipy-ad already installed or installation failed"
-
-# Ensure pipx apps are available for the sudo user too
-if [ -n "$SUDO_USER" ]; then
-    USER_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
-    su - "$SUDO_USER" -c "
-        export PATH=\"\$PATH:\$HOME/.local/bin\"
-        python3 -m pipx ensurepath
-        [ -f \$HOME/.bashrc ] && source \$HOME/.bashrc
-        python3 -m pipx install impacket || echo 'Impacket already installed'
-        python3 -m pipx inject impacket ldap3 2>/dev/null || true
-        python3 -m pipx install netexec || echo 'Netexec already installed'
-        python3 -m pipx install certipy-ad || echo 'Certipy-ad already installed'
-    "
-fi
+# Install certipy-ad
+print_status "Installing certipy..."
+pipx install certipy-ad
 
 # 13. Install Obsidian
 print_status "Installing Obsidian..."
@@ -634,7 +580,7 @@ snap install obsidian --classic || {
 # Add Python scripts to PATH
 print_status "Configuring PATH..."
 
-# Create profile.d script to ensure pipx and Python scripts are in PATH
+# Create profile.d script to ensure Python scripts are in PATH
 cat > /etc/profile.d/security-tools.sh << 'EOF'
 # Add Python user base bin to PATH
 if [ -d "$HOME/.local/bin" ]; then
@@ -645,17 +591,31 @@ fi
 if [ -d "/usr/local/bin" ]; then
     export PATH="/usr/local/bin:$PATH"
 fi
-
-# Ensure pipx completions are loaded
-if command -v pipx >/dev/null 2>&1; then
-    eval "$(register-python-argcomplete pipx)" 2>/dev/null || true
-fi
 EOF
 
 chmod +x /etc/profile.d/security-tools.sh
 
-# Ensure pipx binaries are in current PATH
-export PATH="$HOME/.local/bin:$PATH"
+# Create symbolic links for Python tools if needed
+print_status "Creating symbolic links for Python tools..."
+
+# Find where pip installed the tools
+PYTHON_BIN=$(python3 -m site --user-base)/bin
+
+# Create symlinks in /usr/local/bin for system-wide access
+for tool in impacket netexec certipy; do
+    # Find the actual binary
+    if [ -f "$PYTHON_BIN/$tool" ]; then
+        ln -sf "$PYTHON_BIN/$tool" /usr/local/bin/
+    elif [ -f "/usr/local/bin/$tool" ]; then
+        print_status "$tool already in /usr/local/bin"
+    else
+        # Try to find it in the system Python path
+        TOOL_PATH=$(find /usr -name "$tool" -type f -executable 2>/dev/null | grep -E "(bin|scripts)" | head -1)
+        if [ -n "$TOOL_PATH" ]; then
+            ln -sf "$TOOL_PATH" /usr/local/bin/
+        fi
+    fi
+done
 
 # Verify installations
 print_status "Verifying installations..."
@@ -683,15 +643,12 @@ check_tool i3
 check_tool polybar
 check_tool zsh
 check_tool kitty
-command -v pipx &>/dev/null && echo -e "${GREEN}✓${NC} pipx installed" || python3 -m pipx --version &>/dev/null && echo -e "${GREEN}✓${NC} pipx installed (via python module)" || echo -e "${RED}✗${NC} pipx not found"
 
 # Check Python tools
 echo ""
-echo "Python tools (installed via pipx):"
-# Ensure pipx is in PATH for the check
-export PATH="$HOME/.local/bin:$PATH"
-python3 -m pipx list 2>/dev/null | grep -q "package impacket" && echo -e "${GREEN}✓${NC} impacket installed" || echo -e "${RED}✗${NC} impacket not found"
-command -v netexec &>/dev/null && echo -e "${GREEN}✓${NC} netexec installed (aliases: crackmapexec, cme)" || echo -e "${RED}✗${NC} netexec not found"
+echo "Python tools:"
+python3 -m pip show impacket &>/dev/null && echo -e "${GREEN}✓${NC} impacket installed" || echo -e "${RED}✗${NC} impacket not found"
+command -v netexec &>/dev/null && echo -e "${GREEN}✓${NC} netexec installed" || echo -e "${RED}✗${NC} netexec not found"
 command -v certipy &>/dev/null && echo -e "${GREEN}✓${NC} certipy installed" || echo -e "${RED}✗${NC} certipy not found"
 
 # Check Obsidian
@@ -728,26 +685,13 @@ fi
 
 print_status "Installation complete!"
 print_warning "Please log out and log back in for shell changes to take effect and PATH to be updated."
-print_warning "Alternatively, run: source /etc/profile.d/security-tools.sh && source ~/.bashrc && exec zsh"
+print_warning "Alternatively, run: source /etc/profile.d/security-tools.sh && exec zsh"
 
 # Additional notes
 echo ""
 echo "=== Additional Notes ==="
-echo "1. Impacket: Installed via pipx. Common scripts available directly in PATH:"
-echo "   - Execution: psexec.py, smbexec.py, wmiexec.py, atexec.py, dcomexec.py"
-echo "   - Kerberos: GetNPUsers.py, GetUserSPNs.py, getTGT.py, getPac.py, ticketer.py"
-echo "   - Secrets: secretsdump.py, mimikatz.py, dpapi.py, reg.py"
-echo "   - SMB/MSRPC: smbclient.py, smbserver.py, rpcdump.py, samrdump.py, lookupsid.py"
-echo "   - LDAP: GetADUsers.py, ldapdomaindump.py"
-echo "   - MSSQL: mssqlclient.py, mssqlinstance.py"
-echo "   - ldap3 dependency auto-injected for LDAP-related scripts"
-echo "   - All scripts: ls ~/.local/pipx/venvs/impacket/bin/ | grep .py"
-echo "   - Run 'pipx list' to see all installed packages"
-echo "   - Update with: 'pipx upgrade-all' or 'python3 -m pipx upgrade-all'"
-echo "2. Python tools are installed with pipx for better isolation"
-echo "   - NetExec is the successor to CrackMapExec (aliases: crackmapexec, cme)"
-echo "   - To add dependencies to a tool: pipx inject <package> <dependency>"
-echo "   - To reinstall a tool: pipx reinstall <package>"
+echo "1. Python tools installed via pipx (impacket, netexec, certipy-ad)"
+echo "2. You may need to run some Python tools with 'python3 -m' prefix"
 echo "3. For Obsidian, if using AppImage, you may need to install additional dependencies"
 echo "4. Some tools may require additional configuration for full functionality"
 echo "5. i3 window manager: Kitty is set as default terminal. Config locations:"
@@ -757,8 +701,7 @@ echo "6. Java: Installed default JRE and OpenJDK 8. To switch versions use: sudo
 echo "7. Hashcat: For NVIDIA GPUs, install CUDA. For AMD GPUs, install ROCm for better performance"
 echo "8. Zsh with Oh My Zsh: Installed with agnoster theme and security-focused plugins"
 echo "   - Config: ~/.zshrc"
-echo "   - Custom aliases: nse, smbmap, serve, pyserve, ports, myip, crackmapexec, cme"
-echo "   - Impacket shortcuts: psexec, smbexec, wmiexec, getnpusers, secretsdump, gettgt"
+echo "   - Custom aliases: nse, smbmap, serve, pyserve, ports, myip"
 echo "   - Custom functions: extract_all, b64e/b64d, urlencode/urldecode"
 echo "   - Plugins: git, docker, python, nmap, ssh-agent, tmux, z, and more"
 echo "9. Kitty: Configured as default terminal. Config file: ~/.config/kitty/kitty.conf"
