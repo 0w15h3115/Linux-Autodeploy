@@ -66,10 +66,12 @@ apt install -y \
     clinfo \
     fonts-powerline \
     fonts-font-awesome \
-    tmux
+    tmux \
+    python3 \
+    ncat
 
 # 1. Install nmap (includes ncat)
-print_status "Installing nmap and ncat..."
+print_status "Installing nmap..."
 apt install -y nmap
 
 # 2. Install ping (usually pre-installed, but just in case)
