@@ -68,27 +68,17 @@ apt install -y \
     fonts-font-awesome \
     tmux \
     python3 \
-    ncat
+    ncat \
+    nmap \
+    iputils-ping \
+    binwalk \
+    smblient \ 
+    dnsutils \
+    dnsrecon \
+    dnsenum \
+    default-jre \
+    openjdk-8-jre
 
-# 1. Install nmap
-print_status "Installing nmap..."
-apt install -y nmap
-
-# 2. Install ping (usually pre-installed, but just in case)
-print_status "Installing ping utilities..."
-apt install -y iputils-ping
-
-# 3. Install binwalk
-print_status "Installing binwalk..."
-apt install -y binwalk
-
-# 4. Install smbclient
-print_status "Installing smbclient..."
-apt install -y smbclient
-
-# 5. Install dnsutils (assuming this is what you meant by dnstool)
-print_status "Installing DNS tools..."
-apt install -y dnsutils dnsrecon dnsenum
 
 # 6. Install hashcat
 print_status "Installing hashcat..."
@@ -103,15 +93,6 @@ apt install -y hashcat || {
     cd ..
     rm -rf hashcat
 }
-
-# Note: hashcat-utils is not in standard repos, but hashcat includes most needed utilities
-
-# 7. Install Java Runtime
-print_status "Installing Java Runtime..."
-# Installing default OpenJDK JRE (currently 11 or 17 on Ubuntu)
-apt install -y default-jre
-# Also install OpenJDK 8 for compatibility with older applications
-apt install -y openjdk-8-jre
 
 # 8. Install i3 window manager
 print_status "Installing i3 window manager..."
