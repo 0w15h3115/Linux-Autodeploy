@@ -72,7 +72,7 @@ apt install -y \
     nmap \
     iputils-ping \
     binwalk \
-    smblient \ 
+    smbclient \ 
     dnsutils \
     dnsrecon \
     dnsenum \
