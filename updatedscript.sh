@@ -553,13 +553,7 @@ if ! command -v snap &> /dev/null; then
 fi
 
 # Install Obsidian via snap
-snap install obsidian --classic || {
-    print_warning "Snap installation failed, trying AppImage method..."
-    # Alternative: Download AppImage
-    wget -O /tmp/obsidian.AppImage "https://github.com/obsidianmd/obsidian-releases/releases/latest/download/Obsidian-1.5.3.AppImage"
-    chmod +x /tmp/obsidian.AppImage
-    mv /tmp/obsidian.AppImage /usr/local/bin/obsidian
-    print_status "Obsidian AppImage installed to /usr/local/bin/obsidian"
+snap install obsidian --classic
 }
 
 # Add Python scripts to PATH
