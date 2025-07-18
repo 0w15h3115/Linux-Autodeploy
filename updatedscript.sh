@@ -76,7 +76,8 @@ apt install -y \
     dnsutils \
     default-jre \
     openjdk-8-jre \
-    dnsrecon 
+    dnsrecon \
+    python3-ldapdomaindump
 
 # 6. Install hashcat
 print_status "Installing hashcat..."
