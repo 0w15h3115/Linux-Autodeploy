@@ -79,7 +79,8 @@ apt install -y \
     dnsrecon \
     python3-ldapdomaindump \
     pyrebase4 \
-    adcli
+    adcli \
+    nbtscan
 
 # 6. Install hashcat
 print_status "Installing hashcat..."
