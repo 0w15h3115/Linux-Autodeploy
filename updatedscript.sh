@@ -78,7 +78,6 @@ apt install -y \
     openjdk-8-jre \
     dnsrecon 
 
-
 # 6. Install hashcat
 print_status "Installing hashcat..."
 apt install -y hashcat || {
