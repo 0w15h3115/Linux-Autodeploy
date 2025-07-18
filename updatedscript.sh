@@ -75,7 +75,8 @@ apt install -y \
     smbclient \
     dnsutils \
     default-jre \
-    openjdk-8-jre
+    openjdk-8-jre \
+    dnsrecon 
 
 
 # 6. Install hashcat
