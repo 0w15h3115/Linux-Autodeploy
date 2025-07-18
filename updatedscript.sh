@@ -78,7 +78,8 @@ apt install -y \
     openjdk-8-jre \
     dnsrecon \
     python3-ldapdomaindump \
-    pyrebase4
+    pyrebase4 \
+    adcli
 
 # 6. Install hashcat
 print_status "Installing hashcat..."
