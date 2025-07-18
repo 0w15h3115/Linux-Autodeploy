@@ -77,7 +77,10 @@ apt install -y \
     default-jre \
     openjdk-8-jre \
     dnsrecon \
-    python3-ldapdomaindump
+    python3-ldapdomaindump \
+    python3-dev \
+    libssl-dev \
+    libffi-dev
 
 # 6. Install hashcat
 print_status "Installing hashcat..."
