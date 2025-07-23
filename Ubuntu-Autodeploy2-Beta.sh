@@ -85,8 +85,55 @@ apt install -y \
     proxychains4 \
     net-tools
 
-# Create dedicated Python environment for security tools
-print_status "Creating dedicated Python environment for security tools..."
+# 12. Install Python-based tools
+print_status "Setting up Python environment for security tools..."
+
+# Create symbolic links for Python tools if needed
+print_status "Creating symbolic links for Python tools..."
+
+# Find where pipx installed the tools
+PIPX_BIN=$(python3 -m pipx list --short 2>/dev/null | grep -E "(impacket|netexec)" | head -1 | cut -d' ' -f1)
+if [ -n "$PIPX_BIN" ]; then
+    PIPX_PATH="$HOME/.local/bin"
+    if [ -n "$SUDO_USER" ]; then
+        USER_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
+        PIPX_PATH="$USER_HOME/.local/bin"
+    fi
+    
+    # Create symlinks in /usr/local/bin for system-wide access to pipx tools
+    for tool in netexec; do
+        if [ -f "$PIPX_PATH/$tool" ]; then
+            ln -sf "$PIPX_PATH/$tool" /usr/local/bin/
+            print_status "Created symlink for $tool"
+        fi
+    done
+    
+    # For impacket, create symlinks for all scripts
+    if [ -d "$PIPX_PATH" ]; then
+        for script in $(find "$PIPX_PATH" -name "*impacket*" -o -name "Get*" -o -name "psexec*" -o -name "smbexec*" -o -name "wmiexec*" -o -name "dcomexec*" -o -name "secretsdump*" -o -name "mimikatz*" -o -name "goldenPac*" -o -name "karmaSMB*" -o -name "smbserver*" -o -name "smbclient*" -o -name "lookupsid*" -o -name "services*" -o -name "netview*" -o -name "reg*" -o -name "samrdump*" -o -name "rpcdump*" -o -name "esentutl*" -o -name "ntlmrelayx*" -o -name "smbrelayx*" -o -name "findDelegation*" -o -name "ticketer*" -o -name "raiseChild*" -o -name "kintercept*" -o -name "rdp_check*" -o -name "mqtt_check*" -o -name "dcomexec*" -o -name "atexec*" 2>/dev/null); do
+            if [ -f "$script" ] && [ -x "$script" ]; then
+                script_name=$(basename "$script")
+                if [ ! -f "/usr/local/bin/$script_name" ]; then
+                    ln -sf "$script" /usr/local/bin/
+                    print_status "Created symlink for $script_name"
+                fi
+            fi
+        done
+    fi
+else
+    print_warning "Could not locate pipx installations, may need manual PATH configuration"
+fi
+
+# Install impacket via pipx (original method)
+print_status "Installing impacket via pipx..."
+pipx install impacket
+
+# Install netexec via pipx (updated from original pip method)
+print_status "Installing netexec via pipx..."
+pipx install netexec
+
+# Create dedicated Python environment for additional security tools
+print_status "Creating dedicated Python environment for advanced security tools..."
 SECURITY_VENV="/opt/security-tools-venv"
 python3 -m venv "$SECURITY_VENV"
 
@@ -102,8 +149,8 @@ print_status "Installing Python packages in security environment..."
 pip install netifaces
 pip install aioquic
 
-# Install impacket from source
-print_status "Installing impacket from source..."
+# Install impacket from source (for latest features)
+print_status "Installing impacket from source in security environment..."
 cd /tmp
 if [ -d "impacket" ]; then
     rm -rf impacket
@@ -129,7 +176,7 @@ chmod +x "$SECURITY_VENV/responder/Responder.py"
 cd ..
 print_status "Responder installed from source"
 
-# Install certipy in the virtual environment (even though we have apt version)
+# Install certipy in the virtual environment (in addition to apt version)
 print_status "Installing certipy-ad in security environment..."
 pip install certipy-ad
 
@@ -140,16 +187,17 @@ deactivate
 print_status "Creating wrapper scripts for security tools..."
 mkdir -p /usr/local/bin
 
-# Create impacket wrapper scripts
+# Create impacket wrapper scripts for venv version
 for script in $(find "$SECURITY_VENV/bin" -name "*impacket*" -o -name "Get*" -o -name "add*" -o -name "atexec*" -o -name "dcom*" -o -name "dpapi*" -o -name "find*" -o -name "get*" -o -name "golden*" -o -name "karmaSMB*" -o -name "kint*" -o -name "lookupsid*" -o -name "mimikatz*" -o -name "mqtt*" -o -name "mssql*" -o -name "net*" -o -name "nmb*" -o -name "ntfs*" -o -name "ntlm*" -o -name "ping*" -o -name "psexec*" -o -name "raiseChild*" -o -name "rdp*" -o -name "reg*" -o -name "rpcdump*" -o -name "rpc*" -o -name "sambaPipe*" -o -name "samr*" -o -name "secret*" -o -name "service*" -o -name "smbclient*" -o -name "smbexec*" -o -name "smbpasswd*" -o -name "smbserver*" -o -name "sniff*" -o -name "split*" -o -name "ticketer*" -o -name "tick*" -o -name "wmi*" 2>/dev/null); do
     if [ -f "$script" ] && [ -x "$script" ]; then
         script_name=$(basename "$script")
-        cat > "/usr/local/bin/$script_name" << EOF
+        # Create venv version with -venv suffix to avoid conflicts
+        cat > "/usr/local/bin/$script_name-venv" << EOF
 #!/bin/bash
 source "$SECURITY_VENV/bin/activate"
 exec "$script" "\$@"
 EOF
-        chmod +x "/usr/local/bin/$script_name"
+        chmod +x "/usr/local/bin/$script_name-venv"
     fi
 done
 
@@ -169,10 +217,6 @@ source "$SECURITY_VENV/bin/activate"
 exec certipy "\$@"
 EOF
 chmod +x "/usr/local/bin/certipy-venv"
-
-# Install netexec via pipx
-print_status "Installing netexec via pipx..."
-pipx install netexec
 
 # 6. Install hashcat
 print_status "Installing hashcat..."
