@@ -771,14 +771,12 @@ print_status "Configuring PATH..."
 cat > /etc/profile.d/security-tools.sh << 'EOF'
 # Security Tools PATH Configuration
 
+# Ensure standard system directories are in PATH
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
+
 # Add user's local bin to PATH (where pipx installs tools)
 if [ -d "$HOME/.local/bin" ]; then
     export PATH="$HOME/.local/bin:$PATH"
-fi
-
-# Add system-wide local bin to PATH
-if [ -d "/usr/local/bin" ]; then
-    export PATH="/usr/local/bin:$PATH"
 fi
 
 # Add security tools virtual environment to PATH
@@ -798,8 +796,11 @@ if [ -n "$SUDO_USER" ]; then
             cat >> "$USER_HOME/.zshrc" << 'EOF'
 
 # Security Tools PATH (added by installation script)
+# Ensure standard system directories are in PATH
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
+# Add user's local bin to PATH (where pipx installs tools)
 export PATH="$HOME/.local/bin:$PATH"
-export PATH="/usr/local/bin:$PATH"
+# Add security tools virtual environment to PATH
 export PATH="/opt/security-tools-venv/bin:$PATH"
 EOF
             chown "$SUDO_USER:$SUDO_USER" "$USER_HOME/.zshrc"
@@ -959,8 +960,8 @@ echo "   - responder: Installed from source in virtual environment"
 echo "   - proxychains4: Installed via apt"
 echo "   - net-tools: Installed via apt (provides netstat, ifconfig, etc.)"
 echo "3. PATH Configuration:"
-echo "   - Tools installed in: /home/$SUDO_USER/.local/bin"
-echo "   - System-wide symlinks: /usr/local/bin"
+echo "   - Standard system directories: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+echo "   - User pipx tools: /home/$SUDO_USER/.local/bin"
 echo "   - Virtual environment: /opt/security-tools-venv/bin"
 echo "   - Configuration file: /etc/profile.d/security-tools.sh"
 echo "   - Also added to: /home/$SUDO_USER/.zshrc"
