@@ -90,68 +90,102 @@ print_status "Setting up Python environment for security tools..."
 # Create symbolic links for Python tools if needed
 print_status "Creating symbolic links for Python tools..."
 
-# Find where pipx installed the tools
-PIPX_BIN=$(python3 -m pipx list --short 2>/dev/null | grep -E "(impacket|netexec)" | head -1 | cut -d' ' -f1)
-if [ -n "$PIPX_BIN" ]; then
-    PIPX_PATH="$HOME/.local/bin"
-    if [ -n "$SUDO_USER" ]; then
-        USER_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
-        PIPX_PATH="$USER_HOME/.local/bin"
-    fi
+# Determine the correct user and paths
+if [ -n "$SUDO_USER" ]; then
+    USER_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
+    USER_LOCAL_BIN="$USER_HOME/.local/bin"
+else
+    USER_LOCAL_BIN="$HOME/.local/bin"
+fi
+
+# Check if pipx tools were installed and create system-wide symlinks
+if [ -d "$USER_LOCAL_BIN" ]; then
+    print_status "Found pipx installation directory: $USER_LOCAL_BIN"
     
-    # Create symlinks in /usr/local/bin for system-wide access to pipx tools
-    for tool in netexec; do
-        if [ -f "$PIPX_PATH/$tool" ]; then
-            ln -sf "$PIPX_PATH/$tool" /usr/local/bin/
-            print_status "Created symlink for $tool"
+    # Create symlinks for commonly used tools
+    for tool in netexec nxc nxcdb; do
+        if [ -f "$USER_LOCAL_BIN/$tool" ]; then
+            ln -sf "$USER_LOCAL_BIN/$tool" /usr/local/bin/
+            print_status "Created system-wide symlink for $tool"
         fi
     done
     
-    # For impacket, create symlinks for all scripts
-    if [ -d "$PIPX_PATH" ]; then
-        for script in $(find "$PIPX_PATH" -name "*impacket*" -o -name "Get*" -o -name "psexec*" -o -name "smbexec*" -o -name "wmiexec*" -o -name "dcomexec*" -o -name "secretsdump*" -o -name "mimikatz*" -o -name "goldenPac*" -o -name "karmaSMB*" -o -name "smbserver*" -o -name "smbclient*" -o -name "lookupsid*" -o -name "services*" -o -name "netview*" -o -name "reg*" -o -name "samrdump*" -o -name "rpcdump*" -o -name "esentutl*" -o -name "ntlmrelayx*" -o -name "smbrelayx*" -o -name "findDelegation*" -o -name "ticketer*" -o -name "raiseChild*" -o -name "kintercept*" -o -name "rdp_check*" -o -name "mqtt_check*" -o -name "dcomexec*" -o -name "atexec*" 2>/dev/null); do
-            if [ -f "$script" ] && [ -x "$script" ]; then
-                script_name=$(basename "$script")
-                if [ ! -f "/usr/local/bin/$script_name" ]; then
-                    ln -sf "$script" /usr/local/bin/
-                    print_status "Created symlink for $script_name"
-                fi
+    # Create symlinks for impacket tools
+    for script in $(find "$USER_LOCAL_BIN" -name "*impacket*" -o -name "Get*" -o -name "psexec*" -o -name "smbexec*" -o -name "wmiexec*" -o -name "secretsdump*" -o -name "ntlmrelayx*" -o -name "smbserver*" -o -name "ticketer*" -o -name "mimikatz*" -o -name "goldenPac*" -o -name "lookupsid*" -o -name "rpcdump*" -o -name "samrdump*" -o -name "reg*" -o -name "atexec*" -o -name "dcomexec*" 2>/dev/null); do
+        if [ -f "$script" ] && [ -x "$script" ]; then
+            script_name=$(basename "$script")
+            if [ ! -f "/usr/local/bin/$script_name" ]; then
+                ln -sf "$script" /usr/local/bin/
+                print_status "Created system-wide symlink for $script_name"
             fi
-        done
-    fi
+        fi
+    done
 else
-    print_warning "Could not locate pipx installations, may need manual PATH configuration"
+    print_warning "Could not locate pipx installation directory"
 fi
 
-# Install impacket via pipx (original method)
-print_status "Installing impacket via pipx..."
-pipx install impacket
-
-# Install netexec via pipx (updated from original pip method)
-print_status "Installing netexec via pipx..."
-
-# Check if rust is installed, install if needed
-if ! command -v rustc &> /dev/null; then
-    print_warning "Rust not found, installing Rust (required for NetExec)..."
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-    source "$HOME/.cargo/env" 2>/dev/null || true
-    # Also try to source for the sudo user if different
-    if [ -n "$SUDO_USER" ]; then
-        USER_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
-        su - "$SUDO_USER" -c "source '$USER_HOME/.cargo/env' 2>/dev/null || true"
+# Install pipx tools as the actual user (not root)
+if [ -n "$SUDO_USER" ]; then
+    USER_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
+    
+    # Install Rust for the user first (required for NetExec)
+    print_status "Installing Rust for user $SUDO_USER (required for NetExec)..."
+    su - "$SUDO_USER" -c "
+        if ! command -v rustc &> /dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+            source ~/.cargo/env
+        fi
+    " || print_warning "Failed to install Rust for user"
+    
+    # Ensure pipx is available for the user
+    print_status "Setting up pipx for user $SUDO_USER..."
+    su - "$SUDO_USER" -c "
+        python3 -m pip install --user pipx
+        python3 -m pipx ensurepath
+    " 2>/dev/null || print_warning "Failed to setup pipx for user"
+    
+    # Install impacket via pipx as user
+    print_status "Installing impacket via pipx for user $SUDO_USER..."
+    su - "$SUDO_USER" -c "
+        source ~/.cargo/env 2>/dev/null || true
+        python3 -m pipx install impacket
+    " || print_warning "Failed to install impacket via pipx"
+    
+    # Install netexec via pipx as user
+    print_status "Installing netexec via pipx for user $SUDO_USER..."
+    su - "$SUDO_USER" -c "
+        source ~/.cargo/env 2>/dev/null || true
+        python3 -m pipx install git+https://github.com/Pennyw0rth/NetExec
+    " || {
+        print_warning "Failed to install netexec from GitHub for user $SUDO_USER"
+        print_warning "This may be due to missing dependencies or Rust installation issues"
+    }
+    
+    print_status "Pipx installations completed for user $SUDO_USER"
+else
+    print_warning "No SUDO_USER detected, installing pipx tools as root (may not be accessible to regular users)"
+    
+    # Fallback: install as root if no sudo user detected
+    if ! command -v rustc &> /dev/null; then
+        print_warning "Rust not found, installing Rust (required for NetExec)..."
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+        source "$HOME/.cargo/env" 2>/dev/null || true
     fi
+    
+    pipx install impacket || print_warning "Failed to install impacket via pipx"
+    pipx install git+https://github.com/Pennyw0rth/NetExec || print_warning "Failed to install netexec via pipx"
 fi
-
-pipx install git+https://github.com/Pennyw0rth/NetExec || {
-    print_warning "Failed to install netexec from GitHub, this may be due to missing dependencies..."
-    print_warning "You may need to install Rust first: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
-    print_warning "Or try installing manually after restarting your shell"
-}
 
 # Create dedicated Python environment for additional security tools
 print_status "Creating dedicated Python environment for advanced security tools..."
 SECURITY_VENV="/opt/security-tools-venv"
 python3 -m venv "$SECURITY_VENV"
+
+# Set proper ownership for the virtual environment
+if [ -n "$SUDO_USER" ]; then
+    chown -R "$SUDO_USER:$SUDO_USER" "$SECURITY_VENV"
+    print_status "Set ownership of virtual environment to $SUDO_USER"
+fi
 
 # Activate the virtual environment for the rest of the installations
 source "$SECURITY_VENV/bin/activate"
@@ -463,7 +497,16 @@ EOF
         
         # Add polybar launch command
         if ! grep -q "polybar/launch.sh" "$USER_I3_CONFIG"; then
-            echo "" >> "$USER_I3_CONFIG"
+            echo ""
+echo "=== Troubleshooting ==="
+echo "If tools are not found after restarting terminal:"
+echo "1. Check pipx installations: pipx list"
+echo "2. Check PATH: echo \$PATH | grep local"
+echo "3. Manual PATH fix: source ~/.zshrc"
+echo "4. Check tool locations: ls -la ~/.local/bin/"
+echo "5. If still broken, reinstall as user:"
+echo "   pipx install git+https://github.com/Pennyw0rth/NetExec"
+echo "   pipx install impacket" >> "$USER_I3_CONFIG"
             echo "# Launch polybar" >> "$USER_I3_CONFIG"
             echo "exec_always --no-startup-id \$HOME/.config/polybar/launch.sh" >> "$USER_I3_CONFIG"
         fi
@@ -726,12 +769,14 @@ print_status "Configuring PATH..."
 
 # Create profile.d script to ensure Python scripts are in PATH
 cat > /etc/profile.d/security-tools.sh << 'EOF'
-# Add Python user base bin to PATH
+# Security Tools PATH Configuration
+
+# Add user's local bin to PATH (where pipx installs tools)
 if [ -d "$HOME/.local/bin" ]; then
     export PATH="$HOME/.local/bin:$PATH"
 fi
 
-# Add Python3 scripts to PATH
+# Add system-wide local bin to PATH
 if [ -d "/usr/local/bin" ]; then
     export PATH="/usr/local/bin:$PATH"
 fi
@@ -744,8 +789,31 @@ EOF
 
 chmod +x /etc/profile.d/security-tools.sh
 
-# Ensure pipx path is in PATH
-pipx ensurepath
+# Also add to the user's zshrc for immediate availability
+if [ -n "$SUDO_USER" ]; then
+    USER_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
+    if [ -f "$USER_HOME/.zshrc" ]; then
+        # Check if our PATH exports are already in zshrc, if not add them
+        if ! grep -q "# Security Tools PATH" "$USER_HOME/.zshrc"; then
+            cat >> "$USER_HOME/.zshrc" << 'EOF'
+
+# Security Tools PATH (added by installation script)
+export PATH="$HOME/.local/bin:$PATH"
+export PATH="/usr/local/bin:$PATH"
+export PATH="/opt/security-tools-venv/bin:$PATH"
+EOF
+            chown "$SUDO_USER:$SUDO_USER" "$USER_HOME/.zshrc"
+            print_status "Added security tools PATH to $SUDO_USER's .zshrc"
+        fi
+    fi
+fi
+
+# Ensure pipx path is in PATH for the user
+if [ -n "$SUDO_USER" ]; then
+    su - "$SUDO_USER" -c "python3 -m pipx ensurepath" || print_warning "Failed to run pipx ensurepath for user"
+else
+    pipx ensurepath
+fi
 
 # Verify installations
 print_status "Verifying installations..."
@@ -792,8 +860,23 @@ python3 -m pip show dnsrecon &>/dev/null && echo -e "${GREEN}✓${NC} dnsrecon i
 dpkg -l | grep -q python3-certipy && echo -e "${GREEN}✓${NC} python3-certipy (apt) installed" || echo -e "${RED}✗${NC} python3-certipy (apt) not found"
 
 echo ""
-echo "Python tools (pipx):"
-command -v netexec &>/dev/null && echo -e "${GREEN}✓${NC} netexec (pipx) installed" || echo -e "${RED}✗${NC} netexec (pipx) not found"
+echo "Python tools (pipx - installed for user):"
+if [ -n "$SUDO_USER" ]; then
+    USER_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
+    if su - "$SUDO_USER" -c "command -v netexec" &>/dev/null; then
+        echo -e "${GREEN}✓${NC} netexec (pipx) installed for $SUDO_USER"
+    else
+        echo -e "${RED}✗${NC} netexec (pipx) not found for $SUDO_USER"
+    fi
+    if su - "$SUDO_USER" -c "command -v secretsdump.py" &>/dev/null; then
+        echo -e "${GREEN}✓${NC} impacket (pipx) installed for $SUDO_USER"
+    else
+        echo -e "${RED}✗${NC} impacket (pipx) not found for $SUDO_USER"
+    fi
+else
+    command -v netexec &>/dev/null && echo -e "${GREEN}✓${NC} netexec (pipx) installed" || echo -e "${RED}✗${NC} netexec (pipx) not found"
+    command -v secretsdump.py &>/dev/null && echo -e "${GREEN}✓${NC} impacket (pipx) installed" || echo -e "${RED}✗${NC} impacket (pipx) not found"
+fi
 
 echo ""
 echo "Security Tools Virtual Environment (/opt/security-tools-venv):"
@@ -854,8 +937,9 @@ fi
 [ -d "/root/.oh-my-zsh" ] && echo -e "${GREEN}✓${NC} Oh My Zsh installed for root" || echo -e "${RED}✗${NC} Oh My Zsh not found for root"
 
 print_status "Installation complete!"
-print_warning "Please log out and log back in for shell changes to take effect and PATH to be updated."
-print_warning "Alternatively, run: source /etc/profile.d/security-tools.sh && exec zsh"
+print_warning "IMPORTANT: Please start a NEW terminal session for PATH changes to take effect."
+print_warning "The tools were installed for the user '$SUDO_USER', not root."
+print_warning "If tools are not found, restart your terminal or run: source ~/.zshrc"
 
 # Additional notes
 echo ""
@@ -863,10 +947,23 @@ echo "=== Additional Notes ==="
 echo "1. Security Tools Virtual Environment: /opt/security-tools-venv"
 echo "   - Contains: impacket, responder, certipy-ad, netifaces, aioquic"
 echo "   - Optional: pyrebase4 (may have failed to install, but script continues)"
+echo "   - Owned by: $SUDO_USER (not root)"
 echo "   - Activate with: source /opt/security-tools-venv/bin/activate"
 echo "   - Or use alias: activate-security / sec-env"
 echo "2. Tool Installation Methods:"
-echo "   - netexec: Installed via pipx from GitHub repository"
+echo "   - netexec: Installed via pipx for user $SUDO_USER"
+echo "   - impacket: Installed via pipx for user $SUDO_USER"
+echo "   - python3-certipy: Installed via apt (system-wide)"
+echo "   - certipy-ad: Installed in virtual environment (use certipy-venv wrapper)"
+echo "   - responder: Installed from source in virtual environment"
+echo "   - proxychains4: Installed via apt"
+echo "   - net-tools: Installed via apt (provides netstat, ifconfig, etc.)"
+echo "3. PATH Configuration:"
+echo "   - Tools installed in: /home/$SUDO_USER/.local/bin"
+echo "   - System-wide symlinks: /usr/local/bin"
+echo "   - Virtual environment: /opt/security-tools-venv/bin"
+echo "   - Configuration file: /etc/profile.d/security-tools.sh"
+echo "   - Also added to: /home/$SUDO_USER/.zshrc"
 echo "   - python3-certipy: Installed via apt (system-wide)"
 echo "   - certipy-ad: Installed in virtual environment (use certipy-venv wrapper)"
 echo "   - impacket: Installed from source in virtual environment"
