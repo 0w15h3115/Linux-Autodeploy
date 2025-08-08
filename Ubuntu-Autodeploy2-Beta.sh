@@ -129,7 +129,24 @@ pipx install impacket
 
 # Install netexec via pipx (updated from original pip method)
 print_status "Installing netexec via pipx..."
-pipx install netexec
+
+# Check if rust is installed, install if needed
+if ! command -v rustc &> /dev/null; then
+    print_warning "Rust not found, installing Rust (required for NetExec)..."
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    source "$HOME/.cargo/env" 2>/dev/null || true
+    # Also try to source for the sudo user if different
+    if [ -n "$SUDO_USER" ]; then
+        USER_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
+        su - "$SUDO_USER" -c "source '$USER_HOME/.cargo/env' 2>/dev/null || true"
+    fi
+fi
+
+pipx install git+https://github.com/Pennyw0rth/NetExec || {
+    print_warning "Failed to install netexec from GitHub, this may be due to missing dependencies..."
+    print_warning "You may need to install Rust first: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
+    print_warning "Or try installing manually after restarting your shell"
+}
 
 # Create dedicated Python environment for additional security tools
 print_status "Creating dedicated Python environment for advanced security tools..."
@@ -840,7 +857,7 @@ echo "   - Optional: pyrebase4 (may have failed to install, but script continues
 echo "   - Activate with: source /opt/security-tools-venv/bin/activate"
 echo "   - Or use alias: activate-security / sec-env"
 echo "2. Tool Installation Methods:"
-echo "   - netexec: Installed via pipx"
+echo "   - netexec: Installed via pipx from GitHub repository"
 echo "   - python3-certipy: Installed via apt (system-wide)"
 echo "   - certipy-ad: Installed in virtual environment (use certipy-venv wrapper)"
 echo "   - impacket: Installed from source in virtual environment"
@@ -883,6 +900,11 @@ echo "    - Launch script: ~/.config/polybar/launch.sh"
 echo "    - Modules: workspaces, window title, CPU, memory, network, battery, date/time"
 echo "15. pyrebase4: This package may fail to install due to dependency issues."
 echo "    If you need Firebase functionality, consider installing it manually or using alternative packages."
+echo "16. netexec: Requires Rust compiler. Script will attempt to install Rust automatically."
+echo "    If installation still fails, manually install Rust and restart shell:"
+echo "    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
+echo "    source ~/.cargo/env"
+echo "    Then try: pipx install git+https://github.com/Pennyw0rth/NetExec"
 echo ""
 echo "=== Quick Start Commands ==="
 echo "Activate security environment: activate-security"
