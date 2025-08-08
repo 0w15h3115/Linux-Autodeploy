@@ -756,7 +756,16 @@ echo "=== Installation Status ==="
 check_tool() {
     if command -v $1 &> /dev/null; then
         echo -e "${GREEN}✓${NC} $1 installed successfully"
-        $1 --version 2>/dev/null || $1 -v 2>/dev/null || echo "   Version info not available"
+        
+        # Skip version check for tools that don't support standard version flags
+        case $1 in
+            nslookup|dig|ping|netstat)
+                echo "   (Version check skipped - tool available)"
+                ;;
+            *)
+                $1 --version 2>/dev/null || $1 -v 2>/dev/null || echo "   Version info not available"
+                ;;
+        esac
     else
         echo -e "${RED}✗${NC} $1 installation failed or not in PATH"
     fi
