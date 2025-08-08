@@ -78,7 +78,6 @@ apt install -y \
     openjdk-8-jre \
     dnsrecon \
     python3-ldapdomaindump \
-    pyrebase4 \
     adcli \
     nbtscan \
     python3-certipy \
@@ -148,6 +147,12 @@ pip install --upgrade pip
 print_status "Installing Python packages in security environment..."
 pip install netifaces
 pip install aioquic
+
+# Try to install pyrebase4 but don't fail if it doesn't work
+print_status "Attempting to install pyrebase4..."
+pip install pyrebase4 || {
+    print_warning "Failed to install pyrebase4, continuing without it..."
+}
 
 # Install impacket from source (for latest features)
 print_status "Installing impacket from source in security environment..."
@@ -775,6 +780,7 @@ if [ -d "$SECURITY_VENV" ]; then
     python -c "import impacket; print('✓ impacket installed in venv')" 2>/dev/null || echo -e "${RED}✗${NC} impacket not found in venv"
     python -c "import netifaces; print('✓ netifaces installed in venv')" 2>/dev/null || echo -e "${RED}✗${NC} netifaces not found in venv"
     python -c "import aioquic; print('✓ aioquic installed in venv')" 2>/dev/null || echo -e "${RED}✗${NC} aioquic not found in venv"
+    python -c "import pyrebase; print('✓ pyrebase4 installed in venv')" 2>/dev/null || echo -e "${YELLOW}*${NC} pyrebase4 not installed in venv (optional)"
     command -v certipy &>/dev/null && echo -e "${GREEN}✓${NC} certipy-ad installed in venv" || echo -e "${RED}✗${NC} certipy-ad not found in venv"
     [ -d "$SECURITY_VENV/responder" ] && echo -e "${GREEN}✓${NC} Responder installed in venv" || echo -e "${RED}✗${NC} Responder not found in venv"
     
@@ -830,6 +836,7 @@ echo ""
 echo "=== Additional Notes ==="
 echo "1. Security Tools Virtual Environment: /opt/security-tools-venv"
 echo "   - Contains: impacket, responder, certipy-ad, netifaces, aioquic"
+echo "   - Optional: pyrebase4 (may have failed to install, but script continues)"
 echo "   - Activate with: source /opt/security-tools-venv/bin/activate"
 echo "   - Or use alias: activate-security / sec-env"
 echo "2. Tool Installation Methods:"
@@ -874,6 +881,8 @@ echo "14. Polybar: Configured to replace i3bar with system monitoring modules"
 echo "    - Config: ~/.config/polybar/config.ini"
 echo "    - Launch script: ~/.config/polybar/launch.sh"
 echo "    - Modules: workspaces, window title, CPU, memory, network, battery, date/time"
+echo "15. pyrebase4: This package may fail to install due to dependency issues."
+echo "    If you need Firebase functionality, consider installing it manually or using alternative packages."
 echo ""
 echo "=== Quick Start Commands ==="
 echo "Activate security environment: activate-security"
