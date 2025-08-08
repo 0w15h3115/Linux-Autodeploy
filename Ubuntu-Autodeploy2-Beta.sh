@@ -501,12 +501,16 @@ EOF
 echo "=== Troubleshooting ==="
 echo "If tools are not found after restarting terminal:"
 echo "1. Check pipx installations: pipx list"
-echo "2. Check PATH: echo \$PATH | grep local"
+echo "2. Check PATH: echo \$PATH | grep -E 'local|snap|opt'"
 echo "3. Manual PATH fix: source ~/.zshrc"
-echo "4. Check tool locations: ls -la ~/.local/bin/"
+echo "4. Check tool locations:"
+echo "   ls -la ~/.local/bin/"
+echo "   ls -la /snap/bin/"
+echo "   ls -la /opt/security-tools-venv/bin/"
 echo "5. If still broken, reinstall as user:"
 echo "   pipx install git+https://github.com/Pennyw0rth/NetExec"
-echo "   pipx install impacket" >> "$USER_I3_CONFIG"
+echo "   pipx install impacket"
+echo "6. For snap apps: snap list" >> "$USER_I3_CONFIG"
             echo "# Launch polybar" >> "$USER_I3_CONFIG"
             echo "exec_always --no-startup-id \$HOME/.config/polybar/launch.sh" >> "$USER_I3_CONFIG"
         fi
@@ -774,6 +778,11 @@ cat > /etc/profile.d/security-tools.sh << 'EOF'
 # Ensure standard system directories are in PATH
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
 
+# Add snap bin directory to PATH
+if [ -d "/snap/bin" ]; then
+    export PATH="/snap/bin:$PATH"
+fi
+
 # Add user's local bin to PATH (where pipx installs tools)
 if [ -d "$HOME/.local/bin" ]; then
     export PATH="$HOME/.local/bin:$PATH"
@@ -798,6 +807,8 @@ if [ -n "$SUDO_USER" ]; then
 # Security Tools PATH (added by installation script)
 # Ensure standard system directories are in PATH
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
+# Add snap bin directory to PATH
+export PATH="/snap/bin:$PATH"
 # Add user's local bin to PATH (where pipx installs tools)
 export PATH="$HOME/.local/bin:$PATH"
 # Add security tools virtual environment to PATH
@@ -961,6 +972,7 @@ echo "   - proxychains4: Installed via apt"
 echo "   - net-tools: Installed via apt (provides netstat, ifconfig, etc.)"
 echo "3. PATH Configuration:"
 echo "   - Standard system directories: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+echo "   - Snap applications: /snap/bin"
 echo "   - User pipx tools: /home/$SUDO_USER/.local/bin"
 echo "   - Virtual environment: /opt/security-tools-venv/bin"
 echo "   - Configuration file: /etc/profile.d/security-tools.sh"
