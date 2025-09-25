@@ -1,2 +1,2 @@
-# Ubuntu-Autodeploy
-Script for Autodeploying security tools on barebones ubuntu
+# Linux-Autodeploy
+Script for Autodeploying security tools on barebones linux
