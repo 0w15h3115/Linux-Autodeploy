@@ -77,13 +77,6 @@ fi
 
 print_status "Pre-flight checks passed"
 
-# Update and upgrade system
-print_status "Updating package lists..."
-apt-get update
-
-print_status "Upgrading existing packages..."
-apt-get upgrade -y
-
 # Install essential build tools and dependencies
 print_status "Installing essential dependencies..."
 apt-get install -y \
