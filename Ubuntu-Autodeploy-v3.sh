@@ -24,11 +24,6 @@ readonly YELLOW='\033[1;33m'
 readonly BLUE='\033[0;34m'
 readonly NC='\033[0m'
 
-# Logging
-exec > >(tee -a "$LOG_FILE") 2>&1
-echo "=== Installation started at $(date) ==="
-echo "=== Script version: $SCRIPT_VERSION ==="
-
 ################################################################################
 # Core Functions
 ################################################################################
@@ -855,6 +850,11 @@ main() {
     check_root
     check_sudo_user
     get_user_info
+
+    # Setup logging (after root check to ensure permissions)
+    exec > >(tee -a "$LOG_FILE") 2>&1
+    echo "=== Installation started at $(date) ==="
+    echo "=== Script version: $SCRIPT_VERSION ==="
     check_internet
     check_disk_space
 
