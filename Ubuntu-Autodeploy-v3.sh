@@ -96,6 +96,14 @@ check_disk_space() {
 install_system_packages() {
     print_section "Installing System Packages"
 
+    # Enable universe repository (required for polybar, many security tools)
+    print_status "Enabling universe repository..."
+    add-apt-repository -y universe
+
+    # Update package lists
+    print_status "Updating package lists..."
+    apt-get update -y
+
     local packages=(
         # Build tools
         build-essential git curl wget
