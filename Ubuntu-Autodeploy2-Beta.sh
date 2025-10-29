@@ -2,17 +2,27 @@
 
 # Ubuntu Security Tools Installation Script
 # This script installs various security analysis tools on Ubuntu
-# Tools: nmap, ncat, ping, binwalk, impacket, obsidian, smbclient, 
-#        netexec, certipy, dnstool, i3, hashcat, java, zsh + oh-my-zsh, 
+# Tools: nmap, ncat, ping, binwalk, impacket, obsidian, smbclient,
+#        netexec, certipy, dnstool, i3, hashcat, java, zsh + oh-my-zsh,
 #        kitty, polybar, proxychains, net-tools, responder
 
 set -e  # Exit on error
+set -o pipefail  # Catch errors in pipes
 
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
+
+# Installation log
+LOG_FILE="/var/log/security-tools-install.log"
+touch "$LOG_FILE" 2>/dev/null || LOG_FILE="/tmp/security-tools-install.log"
+exec > >(tee -a "$LOG_FILE") 2>&1
+
+echo -e "${BLUE}[INFO]${NC} Logging installation to $LOG_FILE"
+echo -e "${BLUE}[INFO]${NC} Installation started at $(date)"
 
 # Function to print colored output
 print_status() {
@@ -33,7 +43,39 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
+# Verify SUDO_USER is set
+if [ -z "$SUDO_USER" ] || [ "$SUDO_USER" = "root" ]; then
+    print_error "This script must be run with sudo, not as root user directly"
+    print_error "Usage: sudo ./$(basename $0)"
+    exit 1
+fi
+
+# Get user information
+ACTUAL_USER="$SUDO_USER"
+USER_HOME=$(getent passwd "$ACTUAL_USER" | cut -d: -f6)
+USER_UID=$(id -u "$ACTUAL_USER")
+USER_GID=$(id -g "$ACTUAL_USER")
+
 print_status "Starting security tools installation..."
+print_status "Installing for user: $ACTUAL_USER"
+print_status "User home directory: $USER_HOME"
+
+# Pre-flight checks
+print_status "Running pre-flight checks..."
+
+# Check internet connectivity
+if ! ping -c 1 8.8.8.8 &> /dev/null; then
+    print_error "No internet connectivity detected"
+    exit 1
+fi
+
+# Check disk space (need at least 5GB free)
+AVAILABLE_SPACE=$(df / | tail -1 | awk '{print $4}')
+if [ "$AVAILABLE_SPACE" -lt 5000000 ]; then
+    print_warning "Less than 5GB disk space available. Installation may fail."
+fi
+
+print_status "Pre-flight checks passed"
 
 # Function to run apt commands with retry logic and rate limiting
 apt_with_retry() {
@@ -236,28 +278,60 @@ fi
 # Create dedicated Python environment for additional security tools
 print_status "Creating dedicated Python environment for advanced security tools..."
 SECURITY_VENV="/opt/security-tools-venv"
-python3 -m venv "$SECURITY_VENV"
+
+# Remove old venv if exists to ensure clean install
+if [ -d "$SECURITY_VENV" ]; then
+    print_warning "Removing existing virtual environment..."
+    rm -rf "$SECURITY_VENV"
+fi
+
+python3 -m venv "$SECURITY_VENV" --system-site-packages
 
 # Set proper ownership for the virtual environment
-if [ -n "$SUDO_USER" ]; then
-    chown -R "$SUDO_USER:$SUDO_USER" "$SECURITY_VENV"
-    print_status "Set ownership of virtual environment to $SUDO_USER"
-fi
+chown -R "$ACTUAL_USER:$(id -gn $ACTUAL_USER)" "$SECURITY_VENV"
+print_status "Set ownership of virtual environment to $ACTUAL_USER"
 
 # Activate the virtual environment for the rest of the installations
 source "$SECURITY_VENV/bin/activate"
 
 # Upgrade pip in the virtual environment
 print_status "Upgrading pip in security tools environment..."
-pip install --upgrade pip
+pip install --upgrade pip setuptools wheel
 
-# Install Python packages in the virtual environment
+# Verify activation
+if [ -z "$VIRTUAL_ENV" ]; then
+    print_error "Failed to activate virtual environment"
+    exit 1
+fi
+print_status "Virtual environment activated: $VIRTUAL_ENV"
+
+# Install Python packages in the virtual environment with proper error handling
 print_status "Installing Python packages in security environment..."
-pip install netifaces
-pip install aioquic
+
+# Install packages one by one with verification
+PYTHON_PACKAGES=(
+    "netifaces"
+    "aioquic"
+    "cryptography"
+    "pyasn1"
+    "ldap3"
+    "ldapdomaindump"
+    "flask"
+    "pyOpenSSL"
+    "pycryptodome"
+)
+
+for package in "${PYTHON_PACKAGES[@]}"; do
+    print_status "Installing $package..."
+    if pip install "$package"; then
+        print_status "✓ $package installed successfully"
+    else
+        print_warning "Failed to install $package, continuing..."
+    fi
+done
 
 # Try to install pyrebase4 but don't fail if it doesn't work
-print_status "Attempting to install pyrebase4..."
+print_status "Attempting to install pyrebase4 (optional)..."
 pip install pyrebase4 || {
     print_warning "Failed to install pyrebase4, continuing without it..."
 }
@@ -268,11 +342,20 @@ cd /tmp
 if [ -d "impacket" ]; then
     rm -rf impacket
 fi
-git clone https://github.com/fortra/impacket.git
-cd impacket
-pip install .
-cd ..
-print_status "Impacket installed from source"
+
+if git clone https://github.com/fortra/impacket.git; then
+    cd impacket
+    if pip install .; then
+        print_status "✓ Impacket installed from source successfully"
+        # Verify impacket installation
+        python3 -c "import impacket; print(f'Impacket version: {impacket.version.BANNER}')" || print_warning "Impacket import failed"
+    else
+        print_warning "Failed to install impacket"
+    fi
+    cd /tmp
+else
+    print_warning "Failed to clone impacket repository"
+fi
 
 # Install responder from source
 print_status "Installing Responder from source..."
@@ -280,21 +363,43 @@ cd /tmp
 if [ -d "Responder" ]; then
     rm -rf Responder
 fi
-git clone https://github.com/lgandx/Responder.git
-cd Responder
-pip install -r requirements.txt
-# Install responder to the virtual environment
-cp -r . "$SECURITY_VENV/responder"
-chmod +x "$SECURITY_VENV/responder/Responder.py"
-cd ..
-print_status "Responder installed from source"
+
+if git clone https://github.com/lgandx/Responder.git; then
+    cd Responder
+    if pip install -r requirements.txt; then
+        # Install responder to the virtual environment
+        mkdir -p "$SECURITY_VENV/responder"
+        cp -r . "$SECURITY_VENV/responder/"
+        chmod +x "$SECURITY_VENV/responder/Responder.py"
+        # Set ownership
+        chown -R "$ACTUAL_USER:$(id -gn $ACTUAL_USER)" "$SECURITY_VENV/responder"
+        print_status "✓ Responder installed from source successfully"
+
+        # Verify responder
+        if [ -f "$SECURITY_VENV/responder/Responder.py" ]; then
+            python3 "$SECURITY_VENV/responder/Responder.py" --version 2>/dev/null || print_status "Responder ready"
+        fi
+    else
+        print_warning "Failed to install Responder dependencies"
+    fi
+    cd /tmp
+else
+    print_warning "Failed to clone Responder repository"
+fi
 
 # Install certipy in the virtual environment (in addition to apt version)
 print_status "Installing certipy-ad in security environment..."
-pip install certipy-ad
+if pip install certipy-ad; then
+    print_status "✓ certipy-ad installed successfully"
+    # Verify certipy installation
+    certipy -h >/dev/null 2>&1 && print_status "certipy command verified" || print_warning "certipy command not found in venv"
+else
+    print_warning "Failed to install certipy-ad"
+fi
 
 # Deactivate virtual environment
 deactivate
+print_status "Virtual environment deactivated"
 
 # Create wrapper scripts for virtual environment tools
 print_status "Creating wrapper scripts for security tools..."
@@ -639,31 +744,84 @@ install_oh_my_zsh() {
         # Add custom aliases for security tools
         cat >> "$USER_HOME/.zshrc" << 'EOF'
 
-# Add local bin to PATH if not already there
-export PATH="$HOME/.local/bin:$PATH"
+# ==================== Security Tools Configuration ====================
+# Added by Ubuntu Security Tools Installation Script
 
-# Security tool aliases
+# PATH Configuration - Order matters!
+export PATH="$HOME/.local/bin:/opt/security-tools-venv/bin:/snap/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
+
+# Add Rust to PATH if installed
+[ -f "$HOME/.cargo/env" ] && source "$HOME/.cargo/env"
+
+# ==================== Security Tool Aliases ====================
+
+# Nmap shortcuts
 alias nse='ls /usr/share/nmap/scripts/ | grep'
+alias nmap-vuln='nmap --script vuln'
+alias nmap-full='nmap -sV -sC -O -p-'
+alias nmap-quick='nmap -F'
+
+# SMB shortcuts
 alias smbmap='smbclient -L'
+alias enum4linux='enum4linux -a'
+
+# Hashcat shortcuts
 alias hashcat64='hashcat'
+alias hashcat-ntlm='hashcat -m 1000'
+alias hashcat-md5='hashcat -m 0'
+
+# Web server aliases
 alias serve='python3 -m http.server'
+alias serve80='sudo python3 -m http.server 80'
+alias serve443='sudo python3 -m http.server 443'
 alias pyserve='python3 -m http.server'
 alias phpserve='php -S 0.0.0.0:8000'
+alias updog='updog'  # Alternative web server
 
 # Network aliases
 alias ports='netstat -tulanp'
 alias listening='netstat -tlnp'
 alias myip='curl -s ifconfig.me'
+alias localip='ip addr show | grep "inet " | grep -v 127.0.0.1'
+alias netinfo='ifconfig -a'
 
 # Security environment activation
 alias activate-security='source /opt/security-tools-venv/bin/activate'
 alias sec-env='source /opt/security-tools-venv/bin/activate'
+alias venv='source /opt/security-tools-venv/bin/activate'
 
 # Proxychains aliases
 alias pchains='proxychains4'
 alias pc='proxychains4'
+alias pcnmap='proxychains4 nmap'
 
-# Useful functions
+# Impacket shortcuts (if installed via pipx or venv)
+alias secretsdump='secretsdump.py'
+alias psexec='psexec.py'
+alias smbexec='smbexec.py'
+alias wmiexec='wmiexec.py'
+alias GetNPUsers='GetNPUsers.py'
+alias GetUserSPNs='GetUserSPNs.py'
+
+# NetExec shortcuts
+alias nxc='netexec'
+alias nxc-smb='netexec smb'
+alias nxc-shares='netexec smb --shares'
+
+# Responder shortcuts
+alias responder-analyze='responder -I eth0 -A'
+alias responder-wpad='responder -I eth0 -wFb'
+
+# Git shortcuts for operations
+alias gs='git status'
+alias ga='git add'
+alias gc='git commit -m'
+alias gp='git push'
+alias gl='git log --oneline'
+
+# ==================== Useful Functions ====================
+
+# Extract function - handles multiple archive types
 extract_all() {
     for file in "$@"; do
         if [ -f "$file" ]; then
@@ -694,6 +852,89 @@ b64d() { echo -n "$1" | base64 -d; }
 # Quick URL encode/decode
 urlencode() { python3 -c "import urllib.parse; print(urllib.parse.quote('$1'))"; }
 urldecode() { python3 -c "import urllib.parse; print(urllib.parse.unquote('$1'))"; }
+
+# Quick hex encode/decode
+hex() { echo -n "$1" | xxd -p; }
+unhex() { echo -n "$1" | xxd -r -p; }
+
+# Generate random password
+genpass() {
+    local length=${1:-16}
+    tr -dc 'A-Za-z0-9!@#$%^&*' < /dev/urandom | head -c "$length"; echo
+}
+
+# Quick nmap scan
+quickscan() {
+    if [ -z "$1" ]; then
+        echo "Usage: quickscan <target>"
+        return 1
+    fi
+    nmap -sV -sC -T4 "$1"
+}
+
+# Full nmap scan
+fullscan() {
+    if [ -z "$1" ]; then
+        echo "Usage: fullscan <target>"
+        return 1
+    fi
+    nmap -sV -sC -O -p- -T4 "$1"
+}
+
+# SMB enumeration
+smbenum() {
+    if [ -z "$1" ]; then
+        echo "Usage: smbenum <target>"
+        return 1
+    fi
+    echo "Running SMB enumeration on $1..."
+    netexec smb "$1" --shares 2>/dev/null || smbclient -L "$1" -N
+}
+
+# Tool availability checker
+check-tool() {
+    if command -v "$1" &> /dev/null; then
+        echo "✓ $1 is installed: $(command -v $1)"
+        $1 --version 2>/dev/null || echo "  (version info not available)"
+    else
+        echo "✗ $1 is not installed or not in PATH"
+    fi
+}
+
+# Check all security tools
+check-all-tools() {
+    echo "Checking security tools installation..."
+    local tools=("nmap" "netexec" "nxc" "secretsdump.py" "responder" "hashcat" "certipy" "proxychains4" "smbclient")
+    for tool in "${tools[@]}"; do
+        check-tool "$tool"
+    done
+}
+
+# ==================== Environment Variables ====================
+
+# Set default editor
+export EDITOR=vim
+export VISUAL=vim
+
+# History settings
+export HISTSIZE=10000
+export SAVEHIST=10000
+export HISTFILE=~/.zsh_history
+
+# ==================== Completion ====================
+
+# Enable command completion for aliases
+setopt COMPLETE_ALIASES
+
+# ==================== Welcome Message ====================
+
+# Display security tools welcome message (only on interactive shells)
+if [[ $- == *i* ]]; then
+    echo "🔒 Security Tools Environment Loaded"
+    echo "💡 Tip: Run 'check-all-tools' to verify installations"
+    echo "📚 Run 'sec-env' or 'activate-security' to activate Python tools venv"
+fi
+
 EOF
         
         chown "$USER_NAME:$USER_NAME" "$USER_HOME/.zshrc"
@@ -892,109 +1133,298 @@ else
     pipx ensurepath
 fi
 
-# Verify installations
-print_status "Verifying installations..."
-echo ""
-echo "=== Installation Status ==="
+# ==================== Fix Permissions ====================
+print_status "Fixing permissions for all installed tools..."
 
-# Function to check if command exists
+# Fix ownership of user home directory files (prevent root-owned files)
+if [ -n "$ACTUAL_USER" ] && [ -d "$USER_HOME" ]; then
+    print_status "Fixing ownership of $USER_HOME..."
+
+    # Fix .local directory
+    if [ -d "$USER_HOME/.local" ]; then
+        chown -R "$ACTUAL_USER:$(id -gn $ACTUAL_USER)" "$USER_HOME/.local"
+        print_status "✓ Fixed .local directory ownership"
+    fi
+
+    # Fix .cargo directory (Rust)
+    if [ -d "$USER_HOME/.cargo" ]; then
+        chown -R "$ACTUAL_USER:$(id -gn $ACTUAL_USER)" "$USER_HOME/.cargo"
+        print_status "✓ Fixed .cargo directory ownership"
+    fi
+
+    # Fix .zshrc
+    if [ -f "$USER_HOME/.zshrc" ]; then
+        chown "$ACTUAL_USER:$(id -gn $ACTUAL_USER)" "$USER_HOME/.zshrc"
+        chmod 644 "$USER_HOME/.zshrc"
+        print_status "✓ Fixed .zshrc ownership"
+    fi
+
+    # Fix config directories
+    for config_dir in .config .oh-my-zsh .ssh; do
+        if [ -d "$USER_HOME/$config_dir" ]; then
+            chown -R "$ACTUAL_USER:$(id -gn $ACTUAL_USER)" "$USER_HOME/$config_dir"
+            print_status "✓ Fixed $config_dir ownership"
+        fi
+    done
+fi
+
+# Fix virtual environment permissions
+if [ -d "$SECURITY_VENV" ]; then
+    print_status "Fixing virtual environment permissions..."
+    chown -R "$ACTUAL_USER:$(id -gn $ACTUAL_USER)" "$SECURITY_VENV"
+    chmod -R u+rwX,go+rX "$SECURITY_VENV"
+    chmod +x "$SECURITY_VENV/bin/"*
+    print_status "✓ Fixed virtual environment permissions"
+fi
+
+# Make wrapper scripts executable by all
+if [ -d "/usr/local/bin" ]; then
+    print_status "Fixing wrapper script permissions..."
+    for script in /usr/local/bin/responder /usr/local/bin/certipy-venv /usr/local/bin/*-venv; do
+        if [ -f "$script" ]; then
+            chmod 755 "$script"
+            print_status "✓ Made $script executable"
+        fi
+    done
+fi
+
+# Fix pipx tool permissions
+if [ -d "$USER_HOME/.local/bin" ]; then
+    print_status "Fixing pipx tool permissions..."
+    chown -R "$ACTUAL_USER:$(id -gn $ACTUAL_USER)" "$USER_HOME/.local/bin"
+    chmod -R 755 "$USER_HOME/.local/bin"
+    print_status "✓ Fixed pipx tools permissions"
+fi
+
+# Add user to necessary groups for tool execution
+print_status "Adding $ACTUAL_USER to necessary groups..."
+usermod -aG sudo "$ACTUAL_USER" 2>/dev/null || true
+usermod -aG adm "$ACTUAL_USER" 2>/dev/null || true
+usermod -aG dialout "$ACTUAL_USER" 2>/dev/null || true
+print_status "✓ User groups updated"
+
+print_status "Permission fixes complete"
+
+# ==================== Comprehensive Installation Verification ====================
+print_status "Running comprehensive installation verification..."
+echo ""
+echo "╔════════════════════════════════════════════════════════════════╗"
+echo "║              Installation Verification Report                  ║"
+echo "╚════════════════════════════════════════════════════════════════╝"
+
+# Function to check if command exists with detailed verification
 check_tool() {
-    if command -v $1 &> /dev/null; then
-        echo -e "${GREEN}✓${NC} $1 installed successfully"
-        
+    local tool_name=$1
+    local test_command=${2:-"$tool_name --version"}
+
+    if command -v "$tool_name" &> /dev/null; then
+        local tool_path=$(command -v "$tool_name")
+        echo -e "${GREEN}✓${NC} $tool_name"
+        echo -e "  └─ Path: $tool_path"
+
         # Skip version check for tools that don't support standard version flags
-        case $1 in
-            nslookup|dig|ping|netstat)
-                echo "   (Version check skipped - tool available)"
+        case $tool_name in
+            nslookup|dig|ping|netstat|ncat)
+                echo -e "  └─ Status: Available"
                 ;;
             *)
-                $1 --version 2>/dev/null || $1 -v 2>/dev/null || echo "   Version info not available"
+                local version_output=$(eval "$test_command" 2>&1 | head -1)
+                if [ -n "$version_output" ]; then
+                    echo -e "  └─ $version_output"
+                else
+                    echo -e "  └─ Status: Installed (version info unavailable)"
+                fi
                 ;;
         esac
+        return 0
     else
-        echo -e "${RED}✗${NC} $1 installation failed or not in PATH"
+        echo -e "${RED}✗${NC} $tool_name - NOT FOUND"
+        return 1
     fi
 }
 
-check_tool nmap
-check_tool ncat
-check_tool ping
-check_tool binwalk
-check_tool smbclient
-check_tool hashcat
-check_tool java
-check_tool i3
-check_tool polybar
-check_tool zsh
-check_tool kitty
-check_tool proxychains4
-check_tool netstat
+# Function to check Python package
+check_python_package() {
+    local package=$1
+    local import_name=${2:-$package}
 
-# Check Python tools
-echo ""
-echo "Python tools (system):"
-python3 -m pip show dnsrecon &>/dev/null && echo -e "${GREEN}✓${NC} dnsrecon installed" || echo -e "${RED}✗${NC} dnsrecon not found"
-dpkg -l | grep -q python3-certipy && echo -e "${GREEN}✓${NC} python3-certipy (apt) installed" || echo -e "${RED}✗${NC} python3-certipy (apt) not found"
+    if python3 -c "import $import_name" 2>/dev/null; then
+        local version=$(python3 -c "import $import_name; print(getattr($import_name, '__version__', 'unknown'))" 2>/dev/null)
+        echo -e "${GREEN}✓${NC} $package (version: $version)"
+        return 0
+    else
+        echo -e "${RED}✗${NC} $package - NOT FOUND"
+        return 1
+    fi
+}
+
+# Counter for installed vs failed
+TOOLS_INSTALLED=0
+TOOLS_FAILED=0
 
 echo ""
-echo "Python tools (pipx - installed for user):"
-if [ -n "$SUDO_USER" ]; then
-    USER_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
-    if su - "$SUDO_USER" -c "command -v netexec" &>/dev/null; then
-        echo -e "${GREEN}✓${NC} netexec (pipx) installed for $SUDO_USER"
-    else
-        echo -e "${RED}✗${NC} netexec (pipx) not found for $SUDO_USER"
-    fi
-    if su - "$SUDO_USER" -c "command -v secretsdump.py" &>/dev/null; then
-        echo -e "${GREEN}✓${NC} impacket (pipx) installed for $SUDO_USER"
-    else
-        echo -e "${RED}✗${NC} impacket (pipx) not found for $SUDO_USER"
-    fi
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  Core System Tools"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+check_tool nmap && ((TOOLS_INSTALLED++)) || ((TOOLS_FAILED++))
+check_tool ncat && ((TOOLS_INSTALLED++)) || ((TOOLS_FAILED++))
+check_tool smbclient && ((TOOLS_INSTALLED++)) || ((TOOLS_FAILED++))
+check_tool hashcat && ((TOOLS_INSTALLED++)) || ((TOOLS_FAILED++))
+check_tool proxychains4 && ((TOOLS_INSTALLED++)) || ((TOOLS_FAILED++))
+check_tool netstat && ((TOOLS_INSTALLED++)) || ((TOOLS_FAILED++))
+check_tool binwalk && ((TOOLS_INSTALLED++)) || ((TOOLS_FAILED++))
+check_tool java && ((TOOLS_INSTALLED++)) || ((TOOLS_FAILED++))
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  GUI/Terminal Environment"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+check_tool i3 && ((TOOLS_INSTALLED++)) || ((TOOLS_FAILED++))
+check_tool polybar && ((TOOLS_INSTALLED++)) || ((TOOLS_FAILED++))
+check_tool zsh && ((TOOLS_INSTALLED++)) || ((TOOLS_FAILED++))
+check_tool kitty && ((TOOLS_INSTALLED++)) || ((TOOLS_FAILED++))
+check_tool obsidian && ((TOOLS_INSTALLED++)) || ((TOOLS_FAILED++))
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  Python Tools (pipx - User: $ACTUAL_USER)"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+# Check netexec
+if su - "$ACTUAL_USER" -c "command -v netexec" &>/dev/null; then
+    NXC_VER=$(su - "$ACTUAL_USER" -c "netexec --version 2>&1 | head -1" 2>/dev/null || echo "unknown")
+    echo -e "${GREEN}✓${NC} netexec"
+    echo -e "  └─ Version: $NXC_VER"
+    echo -e "  └─ Accessible by: $ACTUAL_USER"
+    ((TOOLS_INSTALLED++))
 else
-    command -v netexec &>/dev/null && echo -e "${GREEN}✓${NC} netexec (pipx) installed" || echo -e "${RED}✗${NC} netexec (pipx) not found"
-    command -v secretsdump.py &>/dev/null && echo -e "${GREEN}✓${NC} impacket (pipx) installed" || echo -e "${RED}✗${NC} impacket (pipx) not found"
+    echo -e "${RED}✗${NC} netexec - NOT FOUND"
+    ((TOOLS_FAILED++))
+fi
+
+# Check impacket tools
+if su - "$ACTUAL_USER" -c "command -v secretsdump.py" &>/dev/null; then
+    echo -e "${GREEN}✓${NC} impacket (pipx)"
+    echo -e "  └─ Sample tools:"
+    for tool in secretsdump.py psexec.py smbexec.py GetNPUsers.py; do
+        if su - "$ACTUAL_USER" -c "command -v $tool" &>/dev/null; then
+            echo -e "     • $tool"
+        fi
+    done
+    echo -e "  └─ Accessible by: $ACTUAL_USER"
+    ((TOOLS_INSTALLED++))
+else
+    echo -e "${RED}✗${NC} impacket (pipx) - NOT FOUND"
+    ((TOOLS_FAILED++))
 fi
 
 echo ""
-echo "Security Tools Virtual Environment (/opt/security-tools-venv):"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  DNS/Recon Tools"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+if python3 -m pip show dnsrecon &>/dev/null || command -v dnsrecon &>/dev/null; then
+    echo -e "${GREEN}✓${NC} dnsrecon"
+    ((TOOLS_INSTALLED++))
+else
+    echo -e "${RED}✗${NC} dnsrecon - NOT FOUND"
+    ((TOOLS_FAILED++))
+fi
+
+if command -v dnsenum &>/dev/null; then
+    echo -e "${GREEN}✓${NC} dnsenum"
+    ((TOOLS_INSTALLED++))
+else
+    echo -e "${RED}✗${NC} dnsenum - NOT FOUND"
+    ((TOOLS_FAILED++))
+fi
+
+check_tool dig && ((TOOLS_INSTALLED++)) || ((TOOLS_FAILED++))
+check_tool nslookup && ((TOOLS_INSTALLED++)) || ((TOOLS_FAILED++))
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  Security Tools Virtual Environment (/opt/security-tools-venv)"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 if [ -d "$SECURITY_VENV" ]; then
-    echo -e "${GREEN}✓${NC} Security tools virtual environment created"
-    
+    echo -e "${GREEN}✓${NC} Virtual environment exists"
+    echo -e "  └─ Path: $SECURITY_VENV"
+    echo -e "  └─ Owner: $(stat -c '%U' $SECURITY_VENV)"
+    echo -e "  └─ Permissions: $(stat -c '%a' $SECURITY_VENV)"
+
     # Check tools in virtual environment
     source "$SECURITY_VENV/bin/activate"
-    
-    python -c "import impacket; print('✓ impacket installed in venv')" 2>/dev/null || echo -e "${RED}✗${NC} impacket not found in venv"
-    python -c "import netifaces; print('✓ netifaces installed in venv')" 2>/dev/null || echo -e "${RED}✗${NC} netifaces not found in venv"
-    python -c "import aioquic; print('✓ aioquic installed in venv')" 2>/dev/null || echo -e "${RED}✗${NC} aioquic not found in venv"
-    python -c "import pyrebase; print('✓ pyrebase4 installed in venv')" 2>/dev/null || echo -e "${YELLOW}*${NC} pyrebase4 not installed in venv (optional)"
-    command -v certipy &>/dev/null && echo -e "${GREEN}✓${NC} certipy-ad installed in venv" || echo -e "${RED}✗${NC} certipy-ad not found in venv"
-    [ -d "$SECURITY_VENV/responder" ] && echo -e "${GREEN}✓${NC} Responder installed in venv" || echo -e "${RED}✗${NC} Responder not found in venv"
-    
+
+    echo -e "\n  Python Packages in venv:"
+
+    if python -c "import impacket" 2>/dev/null; then
+        IMPACKET_VER=$(python -c "import impacket; print(impacket.version.BANNER)" 2>/dev/null | grep -oP 'v\d+\.\d+\.\d+' || echo "installed")
+        echo -e "  ${GREEN}✓${NC} impacket ($IMPACKET_VER)"
+        ((TOOLS_INSTALLED++))
+    else
+        echo -e "  ${RED}✗${NC} impacket"
+        ((TOOLS_FAILED++))
+    fi
+
+    for pkg in netifaces aioquic cryptography ldap3 flask; do
+        if python -c "import $pkg" 2>/dev/null; then
+            echo -e "  ${GREEN}✓${NC} $pkg"
+            ((TOOLS_INSTALLED++))
+        else
+            echo -e "  ${RED}✗${NC} $pkg"
+            ((TOOLS_FAILED++))
+        fi
+    done
+
+    if python -c "import pyrebase" 2>/dev/null; then
+        echo -e "  ${GREEN}✓${NC} pyrebase4 (optional)"
+    else
+        echo -e "  ${YELLOW}⚠${NC} pyrebase4 (optional - not installed)"
+    fi
+
+    if command -v certipy &>/dev/null; then
+        echo -e "  ${GREEN}✓${NC} certipy-ad"
+        ((TOOLS_INSTALLED++))
+    else
+        echo -e "  ${RED}✗${NC} certipy-ad"
+        ((TOOLS_FAILED++))
+    fi
+
+    if [ -d "$SECURITY_VENV/responder" ] && [ -f "$SECURITY_VENV/responder/Responder.py" ]; then
+        echo -e "  ${GREEN}✓${NC} Responder"
+        ((TOOLS_INSTALLED++))
+    else
+        echo -e "  ${RED}✗${NC} Responder"
+        ((TOOLS_FAILED++))
+    fi
+
     deactivate
 else
-    echo -e "${RED}✗${NC} Security tools virtual environment not found"
+    echo -e "${RED}✗${NC} Security tools virtual environment NOT FOUND"
+    ((TOOLS_FAILED+=10))
 fi
 
-# Check wrapper scripts
 echo ""
-echo "Wrapper scripts:"
-[ -f "/usr/local/bin/responder" ] && echo -e "${GREEN}✓${NC} responder wrapper created" || echo -e "${RED}✗${NC} responder wrapper not found"
-[ -f "/usr/local/bin/certipy-venv" ] && echo -e "${GREEN}✓${NC} certipy-venv wrapper created" || echo -e "${RED}✗${NC} certipy-venv wrapper not found"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  Wrapper Scripts & System Integration"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-# Check Obsidian
-if command -v obsidian &>/dev/null || [ -f /usr/local/bin/obsidian ]; then
-    echo -e "${GREEN}✓${NC} Obsidian installed"
+if [ -f "/usr/local/bin/responder" ]; then
+    echo -e "${GREEN}✓${NC} responder wrapper"
+    echo -e "  └─ Path: /usr/local/bin/responder"
+    echo -e "  └─ Permissions: $(stat -c '%a' /usr/local/bin/responder)"
+    ((TOOLS_INSTALLED++))
 else
-    echo -e "${RED}✗${NC} Obsidian not found"
+    echo -e "${RED}✗${NC} responder wrapper NOT FOUND"
+    ((TOOLS_FAILED++))
 fi
 
-# Check DNS tools
-echo ""
-echo "DNS tools:"
-check_tool nslookup
-check_tool dig
-check_tool dnsrecon
-check_tool dnsenum
+if [ -f "/usr/local/bin/certipy-venv" ]; then
+    echo -e "${GREEN}✓${NC} certipy-venv wrapper"
+    echo -e "  └─ Path: /usr/local/bin/certipy-venv"
+    ((TOOLS_INSTALLED++))
+else
+    echo -e "${RED}✗${NC} certipy-venv wrapper NOT FOUND"
+    ((TOOLS_FAILED++))
+fi
 
 # Show Java versions
 echo ""
@@ -1013,10 +1443,44 @@ if [ -n "$SUDO_USER" ]; then
 fi
 [ -d "/root/.oh-my-zsh" ] && echo -e "${GREEN}✓${NC} Oh My Zsh installed for root" || echo -e "${RED}✗${NC} Oh My Zsh not found for root"
 
+echo ""
+echo "╔════════════════════════════════════════════════════════════════╗"
+echo "║                   Installation Summary                         ║"
+echo "╚════════════════════════════════════════════════════════════════╝"
+echo ""
+echo -e "  ${GREEN}✓ Tools Successfully Installed:${NC} $TOOLS_INSTALLED"
+echo -e "  ${RED}✗ Tools Failed/Missing:${NC} $TOOLS_FAILED"
+echo ""
+
+if [ $TOOLS_FAILED -eq 0 ]; then
+    echo -e "${GREEN}═══════════════════════════════════════════════════════════════════${NC}"
+    echo -e "${GREEN}            🎉 All tools installed successfully! 🎉${NC}"
+    echo -e "${GREEN}═══════════════════════════════════════════════════════════════════${NC}"
+elif [ $TOOLS_FAILED -lt 5 ]; then
+    echo -e "${YELLOW}═══════════════════════════════════════════════════════════════════${NC}"
+    echo -e "${YELLOW}     Installation completed with minor issues ($TOOLS_FAILED failed)${NC}"
+    echo -e "${YELLOW}═══════════════════════════════════════════════════════════════════${NC}"
+else
+    echo -e "${RED}═══════════════════════════════════════════════════════════════════${NC}"
+    echo -e "${RED}   Installation completed with $TOOLS_FAILED failed installations${NC}"
+    echo -e "${RED}   Please review the log above for details${NC}"
+    echo -e "${RED}═══════════════════════════════════════════════════════════════════${NC}"
+fi
+
+echo ""
 print_status "Installation complete!"
-print_warning "IMPORTANT: Please start a NEW terminal session for PATH changes to take effect."
-print_warning "The tools were installed for the user '$SUDO_USER', not root."
-print_warning "If tools are not found, restart your terminal or run: source ~/.zshrc"
+echo ""
+echo "╔════════════════════════════════════════════════════════════════╗"
+echo "║                   IMPORTANT NEXT STEPS                         ║"
+echo "╚════════════════════════════════════════════════════════════════╝"
+echo ""
+echo "  1. ${YELLOW}START A NEW TERMINAL SESSION${NC} for PATH changes to take effect"
+echo "  2. All tools are installed for user: ${GREEN}$ACTUAL_USER${NC}"
+echo "  3. Run 'check-all-tools' to verify tool accessibility"
+echo "  4. Run 'sec-env' to activate Python virtual environment"
+echo ""
+echo "  Installation log saved to: $LOG_FILE"
+echo ""
 
 # Additional notes
 echo ""
