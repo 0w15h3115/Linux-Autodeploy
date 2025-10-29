@@ -131,7 +131,7 @@ print_warning "NOTE: Holding linux-firmware initially (large package, often rate
 apt-mark hold linux-firmware
 
 # Upgrade everything else
-apt_with_retry "upgrade -y -o Dpkg::Options::='--force-confdef' -o Dpkg::Options::='--force-confold'"
+apt_with_retry "upgrade -y"
 
 # Unhold linux-firmware
 apt-mark unhold linux-firmware
