@@ -96,7 +96,12 @@ check_disk_space() {
 install_system_packages() {
     print_section "Installing System Packages"
 
-    # Enable universe repository (required for polybar, many security tools)
+    # Detect Ubuntu version
+    . /etc/os-release
+    UBUNTU_VERSION="${VERSION_ID}"
+    print_status "Detected Ubuntu $UBUNTU_VERSION"
+
+    # Enable universe repository (required for many security tools)
     print_status "Enabling universe repository..."
     add-apt-repository -y universe
 
@@ -130,14 +135,47 @@ install_system_packages() {
         # OpenCL
         ocl-icd-libopencl1 opencl-headers clinfo
 
-        # GUI
-        i3 i3status i3lock xss-lock dmenu polybar kitty zsh
+        # GUI (without polybar - installed separately due to version constraints)
+        i3 i3status i3lock xss-lock dmenu kitty zsh
     )
 
     print_status "Installing ${#packages[@]} packages..."
     apt-get install -y "${packages[@]}"
 
     print_status "✓ System packages installed"
+}
+
+install_polybar() {
+    print_section "Installing Polybar"
+
+    # Detect Ubuntu version
+    . /etc/os-release
+    UBUNTU_VERSION="${VERSION_ID}"
+
+    # polybar is only available in apt for Ubuntu 20.10+
+    # For 20.04, use snap; for 22.04+, use apt from universe
+    if [[ "$UBUNTU_VERSION" == "20.04" ]]; then
+        print_warning "Ubuntu 20.04 detected - polybar not in repos, installing via snap..."
+        if ! snap list | grep -q polybar; then
+            snap install polybar-git
+            print_status "✓ Polybar installed via snap"
+        else
+            print_status "Polybar already installed"
+        fi
+    else
+        # Ubuntu 22.04+ has polybar in universe repository
+        print_status "Installing polybar from universe repository..."
+        if ! dpkg -l | grep -q "^ii.*polybar"; then
+            apt-get install -y polybar || {
+                print_error "Failed to install polybar from apt"
+                print_warning "Falling back to snap installation..."
+                snap install polybar-git
+            }
+            print_status "✓ Polybar installed"
+        else
+            print_status "Polybar already installed"
+        fi
+    fi
 }
 
 install_snapd() {
@@ -827,6 +865,7 @@ main() {
     # Execute installations
     install_system_packages
     install_snapd
+    install_polybar
     install_obsidian
     setup_rust
     install_pipx_tools
