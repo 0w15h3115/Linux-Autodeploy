@@ -125,10 +125,16 @@ print_status "Updating package lists (with retry logic)..."
 apt_with_retry update
 
 print_status "Upgrading existing packages (with retry logic)..."
-print_warning "NOTE: Skipping linux-firmware initially (large package, often rate-limited)"
+print_warning "NOTE: Holding linux-firmware initially (large package, often rate-limited)"
 
-# Upgrade everything except linux-firmware to avoid rate limiting on large package
-apt_with_retry "upgrade -y -o Dpkg::Options::='--force-confdef' -o Dpkg::Options::='--force-confold' --exclude=linux-firmware"
+# Hold linux-firmware to prevent it from upgrading with everything else
+apt-mark hold linux-firmware
+
+# Upgrade everything else
+apt_with_retry "upgrade -y -o Dpkg::Options::='--force-confdef' -o Dpkg::Options::='--force-confold'"
+
+# Unhold linux-firmware
+apt-mark unhold linux-firmware
 
 # Try to upgrade linux-firmware separately with extra delays
 print_status "Attempting linux-firmware upgrade separately..."
