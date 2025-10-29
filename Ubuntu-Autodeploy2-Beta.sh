@@ -108,7 +108,6 @@ apt-get install -y \
     python3-ldapdomaindump \
     adcli \
     nbtscan \
-    python3-certipy \
     proxychains4 \
     net-tools
 
