@@ -34,6 +34,12 @@ sudo apt update && sudo apt upgrade -y
 
 ## Usage
 
+**Recommended (v3.0 - Clean, modular architecture):**
+```bash
+sudo ./Ubuntu-Autodeploy-v3.sh
+```
+
+**Legacy version:**
 ```bash
 sudo ./Ubuntu-Autodeploy2-Beta.sh
 ```
@@ -42,6 +48,7 @@ sudo ./Ubuntu-Autodeploy2-Beta.sh
 - Run with `sudo`, not as root user directly
 - Script detects `$SUDO_USER` and installs user-specific tools correctly
 - Logs installation to `/var/log/security-tools-install.log`
+- v3 script automatically enables universe repository and updates package lists
 
 ## Post-Installation
 
