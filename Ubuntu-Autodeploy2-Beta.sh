@@ -125,27 +125,7 @@ print_status "Updating package lists (with retry logic)..."
 apt_with_retry update
 
 print_status "Upgrading existing packages (with retry logic)..."
-print_warning "NOTE: Holding linux-firmware initially (large package, often rate-limited)"
-
-# Hold linux-firmware to prevent it from upgrading with everything else
-apt-mark hold linux-firmware
-
-# Upgrade everything else
 apt_with_retry "upgrade -y"
-
-# Unhold linux-firmware
-apt-mark unhold linux-firmware
-
-# Try to upgrade linux-firmware separately with extra delays
-print_status "Attempting linux-firmware upgrade separately..."
-print_status "Adding 2 minute delay before downloading large linux-firmware package..."
-sleep 120
-
-if ! apt_with_retry "install -y --only-upgrade linux-firmware"; then
-    print_warning "linux-firmware upgrade failed (likely rate limited)"
-    print_warning "This is non-critical - system will work fine"
-    print_warning "You can upgrade it manually later with: sudo apt-get install --only-upgrade linux-firmware"
-fi
 
 # Install essential build tools and dependencies
 print_status "Installing essential dependencies (this may take several attempts due to rate limiting)..."
