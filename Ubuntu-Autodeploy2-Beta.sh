@@ -116,12 +116,6 @@ Acquire::Queue-Mode "host";
 Acquire::http::Pipeline-Depth "0";
 EOF
 
-# Optional: Try to use a mirror selector if available
-if command -v netselect-apt &> /dev/null; then
-    print_status "Using netselect-apt to find fastest mirror..."
-    netselect-apt -n -o /etc/apt/sources.list.netselect || print_warning "Mirror selection failed, continuing with default mirrors"
-fi
-
 # Add a small delay to avoid immediate rate limiting
 print_status "Adding initial delay to avoid rate limiting..."
 sleep 10
@@ -131,7 +125,21 @@ print_status "Updating package lists (with retry logic)..."
 apt_with_retry update
 
 print_status "Upgrading existing packages (with retry logic)..."
-apt_with_retry upgrade -y
+print_warning "NOTE: Skipping linux-firmware initially (large package, often rate-limited)"
+
+# Upgrade everything except linux-firmware to avoid rate limiting on large package
+apt_with_retry "upgrade -y -o Dpkg::Options::='--force-confdef' -o Dpkg::Options::='--force-confold' --exclude=linux-firmware"
+
+# Try to upgrade linux-firmware separately with extra delays
+print_status "Attempting linux-firmware upgrade separately..."
+print_status "Adding 2 minute delay before downloading large linux-firmware package..."
+sleep 120
+
+if ! apt_with_retry "install -y --only-upgrade linux-firmware"; then
+    print_warning "linux-firmware upgrade failed (likely rate limited)"
+    print_warning "This is non-critical - system will work fine"
+    print_warning "You can upgrade it manually later with: sudo apt-get install --only-upgrade linux-firmware"
+fi
 
 # Install essential build tools and dependencies
 print_status "Installing essential dependencies (this may take several attempts due to rate limiting)..."
