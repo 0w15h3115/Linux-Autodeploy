@@ -117,7 +117,7 @@ apt-get install -y \
     nbtscan \
     python3-certipy \
     proxychains4 \
-    net-tools"
+    net-tools
 
 
 # 12. Install Python-based tools
