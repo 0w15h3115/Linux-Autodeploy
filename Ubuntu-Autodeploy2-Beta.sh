@@ -35,16 +35,69 @@ fi
 
 print_status "Starting security tools installation..."
 
-# Update system
-print_status "Updating package lists..."
-apt update
+# Function to run apt commands with retry logic and rate limiting
+apt_with_retry() {
+    local max_attempts=5
+    local attempt=1
+    local wait_time=30
+    local command="$@"
 
-print_status "Upgrading existing packages..."
-apt upgrade -y
+    while [ $attempt -le $max_attempts ]; do
+        print_status "Running: apt $command (Attempt $attempt/$max_attempts)"
+
+        if apt $command; then
+            print_status "APT command succeeded"
+            return 0
+        else
+            if [ $attempt -lt $max_attempts ]; then
+                print_warning "APT command failed. Waiting ${wait_time}s before retry $((attempt + 1))..."
+                sleep $wait_time
+                # Exponential backoff - double the wait time for next attempt
+                wait_time=$((wait_time * 2))
+                attempt=$((attempt + 1))
+            else
+                print_error "APT command failed after $max_attempts attempts"
+                return 1
+            fi
+        fi
+    done
+}
+
+# Configure APT to use multiple retries and timeout settings
+print_status "Configuring APT for better reliability..."
+cat > /etc/apt/apt.conf.d/99retry << 'EOF'
+Acquire::Retries "5";
+Acquire::http::Timeout "120";
+Acquire::https::Timeout "120";
+Acquire::ftp::Timeout "120";
+Acquire::Queue-Mode "host";
+Acquire::http::Pipeline-Depth "0";
+EOF
+
+# Optional: Try to use a mirror selector if available
+if command -v netselect-apt &> /dev/null; then
+    print_status "Using netselect-apt to find fastest mirror..."
+    netselect-apt -n -o /etc/apt/sources.list.netselect || print_warning "Mirror selection failed, continuing with default mirrors"
+fi
+
+# Add a small delay to avoid immediate rate limiting
+print_status "Adding initial delay to avoid rate limiting..."
+sleep 10
+
+# Update system with retry logic
+print_status "Updating package lists (with retry logic)..."
+apt_with_retry update
+
+print_status "Upgrading existing packages (with retry logic)..."
+apt_with_retry upgrade -y
 
 # Install essential build tools and dependencies
-print_status "Installing essential dependencies..."
-apt install -y \
+print_status "Installing essential dependencies (this may take several attempts due to rate limiting)..."
+
+# Add delay before large install to avoid rate limiting
+sleep 5
+
+apt_with_retry "install -y \
     build-essential \
     python3 \
     python3-pip \
@@ -82,7 +135,11 @@ apt install -y \
     nbtscan \
     python3-certipy \
     proxychains4 \
-    net-tools
+    net-tools"
+
+# Add a delay after large install
+print_status "Package installation complete, adding cooldown period..."
+sleep 10
 
 # 12. Install Python-based tools
 print_status "Setting up Python environment for security tools..."
@@ -276,7 +333,8 @@ chmod +x "/usr/local/bin/certipy-venv"
 
 # 6. Install hashcat
 print_status "Installing hashcat..."
-apt install -y hashcat || {
+sleep 3
+apt_with_retry "install -y hashcat" || {
     print_warning "Hashcat not found in repositories, installing from source..."
     # Install hashcat from source as fallback
     cd /tmp
@@ -307,11 +365,13 @@ fi
 
 # 8. Install i3 window manager
 print_status "Installing i3 window manager..."
-apt install -y i3 i3status i3lock xss-lock dmenu
+sleep 3
+apt_with_retry "install -y i3 i3status i3lock xss-lock dmenu"
 
 # 9. Install polybar
 print_status "Installing polybar..."
-apt install -y polybar
+sleep 3
+apt_with_retry "install -y polybar"
 
 # Create basic polybar config
 print_status "Configuring polybar..."
@@ -527,7 +587,8 @@ fi
 
 # 10. Install zsh and make it default shell
 print_status "Installing zsh..."
-apt install -y zsh
+sleep 3
+apt_with_retry "install -y zsh"
 
 # Set zsh as default shell for root and current sudo user
 print_status "Setting zsh as default shell..."
@@ -650,7 +711,8 @@ fi
 
 # 11. Install kitty terminal
 print_status "Installing kitty terminal..."
-apt install -y kitty
+sleep 3
+apt_with_retry "install -y kitty"
 
 # Configure kitty as default terminal for i3
 print_status "Configuring kitty as default terminal for i3..."
@@ -759,10 +821,13 @@ print_status "Installing Obsidian..."
 # Check if snap is installed, if not install it
 if ! command -v snap &> /dev/null; then
     print_warning "Snap not found, installing..."
-    apt install -y snapd
+    sleep 3
+    apt_with_retry "install -y snapd"
     systemctl enable --now snapd.socket
     # Create symlink for classic snap support
     ln -s /var/lib/snapd/snap /snap 2>/dev/null || true
+    # Wait for snap to initialize
+    sleep 5
 fi
 
 # Install Obsidian via snap
