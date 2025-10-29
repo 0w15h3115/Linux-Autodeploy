@@ -61,24 +61,17 @@ print_status "Installing for user: $ACTUAL_USER"
 print_status "User home directory: $USER_HOME"
 
 # Pre-flight checks
-print_status "Running pre-flight checks..."
-
-# Check internet connectivity
 if ! ping -c 1 8.8.8.8 &> /dev/null; then
     print_error "No internet connectivity detected"
     exit 1
 fi
 
-# Check disk space (need at least 5GB free)
 AVAILABLE_SPACE=$(df / | tail -1 | awk '{print $4}')
 if [ "$AVAILABLE_SPACE" -lt 5000000 ]; then
     print_warning "Less than 5GB disk space available. Installation may fail."
 fi
 
-print_status "Pre-flight checks passed"
-
 # Install essential build tools and dependencies
-print_status "Installing essential dependencies..."
 apt-get install -y \
     build-essential \
     python3 \
