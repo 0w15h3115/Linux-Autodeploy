@@ -490,7 +490,7 @@ EOF
     if [ ! -f "$i3_dir/config" ]; then
         cat > "$i3_dir/config" << 'EOF'
 # i3 config file (v4)
-set $mod Mod4
+set $mod Mod1
 font pango:monospace 8
 bindsym $mod+Return exec kitty
 bindsym $mod+Shift+q kill
