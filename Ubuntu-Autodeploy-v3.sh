@@ -493,7 +493,7 @@ EOF
 set $mod Mod1
 font pango:monospace 8
 bindsym $mod+Return exec kitty
-bindsym Ctrl+$mod+q kill
+bindsym $mod+Shift+q kill
 bindsym $mod+d exec dmenu_run
 exec_always --no-startup-id $HOME/.config/polybar/launch.sh
 EOF
